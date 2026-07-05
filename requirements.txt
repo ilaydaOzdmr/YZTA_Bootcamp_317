@@ -1,0 +1,15 @@
+# ResilienceOS - Python bagimliliklari (Python 3.11+)
+# Kurulum:  pip install -r requirements.txt
+
+# Veri uretimi & analiz
+Faker==40.15.0
+numpy==2.3.2
+pandas==2.3.1
+
+# Makine ogrenmesi
+scikit-learn==1.8.0
+lightgbm==4.6.0
+
+# Gercek veri kaynaklari
+kaggle==1.6.17          # NOT: yeni surumler bozuk; 1.6.17 sabit
+evds==0.4.0             # TCMB EVDS makro veri

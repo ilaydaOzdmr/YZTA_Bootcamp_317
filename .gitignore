@@ -1,0 +1,14 @@
+# Kimlikler - ASLA commit etme
+.env
+*.key
+kaggle.json
+
+# Veri / model ciktilari (buyuk, uretilebilir)
+data/kaggle/
+*.db
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+_extracted/
