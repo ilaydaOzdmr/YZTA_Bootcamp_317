@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/banner.png" alt="ResilienceOS Banner" width="860"/>
+</p>
+
 # ResilienceOS
 ### KOBİ Finansal & Operasyonel Dijital İkiz + Otonom Yapay Zekâ Orkestrası
 **YZTA Bootcamp 2026 — Grup 317**
@@ -87,5 +91,23 @@ Kimlikler için `.env.example` → `.env` (ayrıntı: `src/data_ingest/*.py` ba�
 
 **Sonraki (Sprint 2):** Multi-agent katman (CFO / Tahsilat / Tedarik / Risk Denetçisi) —
 bu motorları çağırıp otonom aksiyon üretir. **Sprint 3:** özel arayüz (dashboard).
+
+---
+
+## Mevcut Durum (Sprint 2 — ML Modelleri)
+
+| Bileşen | Detay | Sonuç |
+|---------|-------|-------|
+| Fatura gecikme tahmini | LightGBM, 5-fold CV, 22 özellik (RFM + tarihsel + anomali) | ✅ RMSE 4.86 gün, %89.7 geç/zamanında doğruluk |
+| Nakit akışı projeksiyonu | LightGBM, net_flow hedef, 3 senaryo (iyimser/normal/kötümser) | ✅ CV RMSE 10.627 TL/gün |
+| Talep & stok tükenme | LightGBM, EWMA + tedarikçi lead time + maliyet analizi | ✅ RMSE 0.30 adet, %92.3 iyileşme |
+
+**Demo çıktıları:**
+- ABC Tekstil INV-4173 (180.000 TL) → Risk **85.0 / KRİTİK**, tahmini gecikme 20 gün
+- Ham Kumaş - ND-7234 → **KRİTİK** (stok = 0), 30g kesinti riski: 11.827 TL
+
+**Sonraki:** `shock_simulation.py` ("Aksiyonları Uygula" motoru) + CrewAI multi-agent katmanı.
+
+---
 
 Ayrıntılı veri seti araştırması: [`docs/01_Dataset_Arastirmasi_ve_Veri_Workflow.md`](docs/01_Dataset_Arastirmasi_ve_Veri_Workflow.md)
