@@ -18,8 +18,10 @@ nakit iki AYRIK kaynaktan gelir:
 
 KAPSAM: Yalnizca BILINEN DEFTER projekte edilir. Cutoff'tan SONRA kesilecek yeni
 faturalar KAPSAM DISIDIR. Bu, hazine (treasury) pratiginde standart olan "direct method"
-yaklasimidir: kisa ufukta (30 gun) yeni faturalarin vadesi (15-60 gun) zaten dolmaz,
-dolayisiyla nakde donmezler. Muhafazakar ve savunulabilir.
+yaklasimidir. Muhafazakar bir varsayimdir: cutoff sonrasi kesilen kisa vadeli (15 gun)
+faturalarin bir kismi 30 gunluk ufukta nakde DONEBILIR; bunlari saymayarak riski
+oldugundan buyuk degil, KUCUK gostermiyoruz - yani hata yonu guvenli tarafta.
+(Backtest MAE'sinin bir kismi bu kapsam disi birakmadan gelir.)
 (v2'de model TUM net akisi tahmin edip UZERINE tahsilat/gider tekrar ekliyordu -> CIFTE
 SAYIM; butun senaryolar -4.5M'e suruklenip krizi kaciriyordu.)
 
@@ -87,10 +89,16 @@ MONTHLY_OPEX    = 13_000.0                     # operasyonel gider (ayin 20'si, 
 MIN_CASH_BUFFER = 100_000.0                    # guvenli operasyonel minimum kasa
 SEED = 42
 
+# Senaryo = (gecikme_carpani, erkenlik_carpani)
+# NOT: Model NEGATIF gecikme de tahmin edebilir (erken odeme; musterilerin ~%68'i).
+# Tek bir carpan kullanmak semantigi bozar: kotumserde pred*1.6, erken odeyen icin
+# (-4)*1.6 = -6.4 yani DAHA DA ERKEN odeme demek olurdu (kotumser, iyimser gibi davranir).
+# Bu yuzden gecikme (pozitif kisim) ve erkenlik (negatif kisim) AYRI olceklenir:
+#   efektif_gecikme = max(pred,0)*gecikme_carpani + min(pred,0)*erkenlik_carpani
 SCENARIO_DELAY = {
-    "iyimser":  0.0,    # tum tahsilatlar vadesinde gelir
-    "normal":   1.0,    # ML modelinin tahmin ettigi gecikme
-    "kotumser": 1.6,    # tahmin edilen gecikmenin %60 fazlasi
+    "iyimser":  (0.0, 1.0),   # gec odeyenler vadesinde oder; erken odeyenler erken kalir
+    "normal":   (1.0, 1.0),   # ML tahmininin aynisi
+    "kotumser": (1.6, 0.0),   # gecikmeler %60 uzar; erken odeyenler erkenligini kaybeder
 }
 
 
@@ -114,7 +122,8 @@ def known_book(con) -> tuple[pd.DataFrame, pd.DataFrame]:
     inv, cust = load_invoice_data()
     df = build_invoice_features(inv, cust)
     booster = lgb.Booster(model_file=str(INV_MODEL_PATH))
-    df["pred_days_late"] = booster.predict(df[INV_FEATURES]).clip(min=0)
+    # clip(min=0) YOK: erken odeme (negatif gecikme) gercek ve tahsilati one ceker.
+    df["pred_days_late"] = booster.predict(df[INV_FEATURES])
 
     df["settled_date"] = pd.to_datetime(df["settled_date"], errors="coerce")
     issued = df[df["invoice_date"] <= CUTOFF]
@@ -132,12 +141,15 @@ def known_book(con) -> tuple[pd.DataFrame, pd.DataFrame]:
 # Projeksiyon
 # --------------------------------------------------------------------------- #
 def project(recv: pd.DataFrame, pay: pd.DataFrame, start_balance: float,
-            future: pd.DatetimeIndex, delay_factor: float) -> pd.Series:
+            future: pd.DatetimeIndex,
+            factors: tuple[float, float] = (1.0, 1.0)) -> pd.Series:
     first = future[0]
+    late_f, early_f = factors
 
-    # --- (A) bilinen alacaklar: vade + gecikme*faktor ---
-    exp = recv["due_date"] + pd.to_timedelta(
-        (recv["pred_days_late"] * delay_factor).round(), unit="D")
+    # --- (A) bilinen alacaklar: vade + efektif gecikme ---
+    pred = recv["pred_days_late"]
+    eff_delay = pred.clip(lower=0) * late_f + pred.clip(upper=0) * early_f
+    exp = recv["due_date"] + pd.to_timedelta(eff_delay.round(), unit="D")
     # HATA DUZELTMESI: penceredan ONCE dusen (vadesi gecmis) tahsilatlar DUSURULMEZ,
     # ilk tahmin gunune tasinir. v2'de bunlar sessizce yok sayiliyor ve iyimser senaryo
     # kotumserden kotu cikiyordu.
@@ -155,6 +167,104 @@ def project(recv: pd.DataFrame, pay: pd.DataFrame, start_balance: float,
 
     net = inflow - outflow - fixed
     return start_balance + net.cumsum()
+
+
+# --------------------------------------------------------------------------- #
+# Monte Carlo: olasiliksal projeksiyon
+# --------------------------------------------------------------------------- #
+def per_invoice_sigma(recv: pd.DataFrame) -> np.ndarray:
+    """
+    Her fatura icin belirsizlik (sigma). Modelin KENDI out-of-fold artiklarindan
+    cikarilan profile gore (tahmin degeri buyudukce sacilim artiyor: erken odeyende
+    ~2.5 gun, cok gec odeyende ~7.6 gun). Tek bir sabit sigma kullanmak, gec odeyen
+    riskli faturalarin belirsizligini KUCUMSER ve kriz olasiligini olduğundan dusuk
+    gosterir.
+
+    sigma_scale kolonu: PAZARLIKLI / sozlesmeye baglanmis odemeler icin 0 verilir
+    (orn. erken odeme indirimi anlasmasi). Bu akislara model gurultusu eklemek yanlistir;
+    tarih artik tahmin degil, taahhuttur.
+    """
+    prof = json.loads((REPORT_DIR / "invoice_delay_metrics.json").read_text(encoding="utf-8"))
+    sp = prof["sigma_profile"]
+    edges, sigmas = np.array(sp["edges"]), np.array(sp["sigmas"])
+    pred = recv["pred_days_late"].to_numpy(dtype=float)
+    idx = np.clip(np.searchsorted(edges, pred, side="right") - 1, 0, len(sigmas) - 1)
+    sig = sigmas[idx]
+    if "sigma_scale" in recv.columns:
+        sig = sig * recv["sigma_scale"].to_numpy(dtype=float)
+    return sig
+
+
+
+def monte_carlo(recv: pd.DataFrame, pay: pd.DataFrame, start_balance: float,
+                future: pd.DatetimeIndex, sigma=None,
+                n_sims: int = 2000, seed: int = SEED) -> dict:
+    """
+    NEDEN GEREKLI: Deterministik projeksiyon her faturayi ORTALAMA tahmini tarihine
+    koyar. Bu, nakit egrisini duzlestirir ve CUKURU SISTEMATIK OLARAK SIGLASTIRIR
+    (gercek tahsilatlar ortalamanin etrafinda saciliyor; kotu gunlerin ust uste
+    binme olasiligi deterministik hesapta kaybolur).
+
+    Cozum: her fatura icin gecikmeyi tahmin edilen dagilimdan ORNEKLE
+    (days_late ~ Normal(model_tahmini, sigma); sigma = modelin CV RMSE'si, yani
+    indirgenemez gurultu) ve binlerce yol simule et. Ciktilar:
+      - kasanin EKSIYE DUSME OLASILIGI
+      - guvenli tampon ihlali olasiligi
+      - cukurun dagilimi (P5 / P50 / P95)
+    Bu, rapordaki "kasanin eksiye dusme ihtimali %X" ciktisinin ta kendisidir.
+    """
+    rng = np.random.default_rng(seed)
+    first = future[0]
+    if sigma is None:
+        sigma = per_invoice_sigma(recv)          # fatura-bazli (heteroskedastik)
+    sigma = np.asarray(sigma, dtype=float)
+    if sigma.ndim == 0:
+        sigma = np.full(len(recv), float(sigma))
+    pred = recv["pred_days_late"].to_numpy(dtype=float)
+    amt = recv["amount"].to_numpy(dtype=float)
+    due = recv["due_date"].to_numpy()
+
+    # Borclar ve sabit giderler deterministik (vadeleri sozlesmeyle belli)
+    exp_pay = pay["exp_pay"].clip(lower=first)
+    outflow = pay.groupby(exp_pay)["amount"].sum().reindex(future, fill_value=0.0).to_numpy()
+    fixed = np.array([MONTHLY_FIXED if d.day == 5 else (MONTHLY_OPEX if d.day == 20 else 0.0)
+                      for d in future])
+    base_net = -(outflow + fixed)
+    H = len(future)
+    day0 = np.datetime64(first, "D")
+
+    troughs = np.empty(n_sims)
+    neg_any = 0
+    below_buffer = 0
+    trough_days = np.empty(n_sims, dtype=int)
+
+    for s in range(n_sims):
+        delay = rng.normal(pred, sigma)                     # ornekle: gercek gecikme
+        coll = due.astype("datetime64[D]") + np.round(delay).astype("timedelta64[D]")
+        idx = (coll - day0).astype(int)
+        idx = np.clip(idx, 0, H)                            # pencere disi -> ilk gun / disari
+        inflow = np.zeros(H)
+        inside = idx < H
+        np.add.at(inflow, idx[inside], amt[inside])
+        bal = start_balance + np.cumsum(inflow + base_net)
+        troughs[s] = bal.min()
+        trough_days[s] = int(bal.argmin())
+        if bal.min() < 0:
+            neg_any += 1
+        if bal.min() < MIN_CASH_BUFFER:
+            below_buffer += 1
+
+    p_neg = neg_any / n_sims
+    mode_day = int(np.bincount(trough_days).argmax())
+    return {
+        "n_sims": n_sims, "sigma_ort": round(float(sigma.mean()), 3),
+        "eksiye_dusme_olasiligi": round(p_neg, 3),
+        "tampon_ihlali_olasiligi": round(below_buffer / n_sims, 3),
+        "cukur_P5": round(float(np.percentile(troughs, 5)), 2),
+        "cukur_P50": round(float(np.percentile(troughs, 50)), 2),
+        "cukur_P95": round(float(np.percentile(troughs, 95)), 2),
+        "en_olasi_kriz_tarihi": str(future[mode_day].date()),
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -195,6 +305,9 @@ def main() -> None:
             "eksiye_duser": bool(trough < 0),
         }
 
+    # --- Monte Carlo: olasiliksal kriz degerlendirmesi ---
+    mc = monte_carlo(recv, pay, start_balance, future)   # fatura-bazli heteroskedastik sigma
+
     print("[3/3] Kaydediliyor...")
     curves.to_csv(FORECAST_PATH, index=False)
 
@@ -219,6 +332,13 @@ def main() -> None:
     print(f"  Tahmin (normal) min    : {results['normal']['min_bakiye']:>12,.0f} TL @ {p_date}")
     print(f"  >> KRIZ TARIHI SAPMASI : {date_err} gun")
     print(f"  >> Backtest MAE        : {mae:,.0f} TL")
+    print("-" * 68)
+    print(f"  MONTE CARLO ({mc['n_sims']} yol, ort. sigma={mc['sigma_ort']}g, fatura-bazli):")
+    print(f"    Kasanin EKSIYE DUSME olasiligi : %{mc['eksiye_dusme_olasiligi']*100:.0f}")
+    print(f"    Guvenli tampon ihlali olasiligi: %{mc['tampon_ihlali_olasiligi']*100:.0f}")
+    print(f"    Cukur dagilimi P5/P50/P95      : {mc['cukur_P5']:,.0f} / "
+          f"{mc['cukur_P50']:,.0f} / {mc['cukur_P95']:,.0f} TL")
+    print(f"    En olasi kriz tarihi           : {mc['en_olasi_kriz_tarihi']}")
 
     metrics = {
         "cutoff": str(CUTOFF.date()), "horizon_days": FORECAST_DAYS,
@@ -227,6 +347,7 @@ def main() -> None:
         "acik_alacak_tl": round(float(recv["amount"].sum()), 2),
         "acik_borc_tl":   round(float(pay["amount"].sum()), 2),
         "senaryolar": results,
+        "monte_carlo": mc,
         "backtest": {"gerceklesen_min": round(a_min, 2), "gerceklesen_tarih": a_date,
                      "mae": round(mae, 2), "kriz_tarihi_sapmasi_gun": date_err},
     }
