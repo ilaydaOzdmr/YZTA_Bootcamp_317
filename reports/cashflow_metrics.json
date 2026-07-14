@@ -1,0 +1,37 @@
+{
+  "model": "LightGBM Time-Series v3 (outlier-robust, net_flow)",
+  "target": "net_flow (TL/gun)",
+  "clip_range": [
+    -116003.04,
+    136253.26
+  ],
+  "n_train": 484,
+  "cv_folds": 5,
+  "best_iter_avg": 272,
+  "cv_rmse_mean": 10627.41,
+  "cv_rmse_std": 2875.88,
+  "cv_mae_mean": 7062.57,
+  "scenario_analysis": {
+    "optimistic": {
+      "min_balance": 16432101.04,
+      "min_date": "2025-09-28",
+      "negative_days": 0,
+      "low_days": 0,
+      "total_expected_inflow": 2501300.32
+    },
+    "normal": {
+      "min_balance": 16835206.04,
+      "min_date": "2025-09-28",
+      "negative_days": 0,
+      "low_days": 0,
+      "total_expected_inflow": 2933389.77
+    },
+    "pessimistic": {
+      "min_balance": 16809842.77,
+      "min_date": "2025-09-28",
+      "negative_days": 0,
+      "low_days": 0,
+      "total_expected_inflow": 2981558.08
+    }
+  }
+}
