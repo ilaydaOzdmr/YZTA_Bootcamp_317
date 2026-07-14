@@ -1,0 +1,44 @@
+{
+  "ibm_real": {
+    "n": 2466,
+    "mean": 3.44,
+    "std": 6.29,
+    "p50": 0.0,
+    "p90": 13.0,
+    "pct_late": 35.6
+  },
+  "highradius_real": {
+    "n": 40000,
+    "mean": 0.84,
+    "std": 10.83,
+    "p50": 0.0,
+    "p90": 5.0,
+    "pct_late": 41.9
+  },
+  "synthetic": {
+    "n": 3918,
+    "mean": 0.85,
+    "std": 7.32,
+    "p50": -2.0,
+    "p90": 11.0,
+    "pct_late": 39.8
+  },
+  "assessment": {
+    "real_mean_range": [
+      0.84,
+      3.44
+    ],
+    "real_pct_late_range": [
+      35.6,
+      41.9
+    ],
+    "synthetic_mean": 0.85,
+    "synthetic_pct_late": 39.8,
+    "synthetic_p50": -2.0,
+    "mean_ok": true,
+    "pct_late_ok": true,
+    "median_ok": true,
+    "synthetic_plausible": true,
+    "note": "Sentetik dagilim (ort+medyan+%gec) gercek kaynaklarla uyumlu -> kalibrasyon gecerli."
+  }
+}

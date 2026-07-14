@@ -1,0 +1,47 @@
+[
+  {
+    "key": "0_baseline",
+    "label": "Baseline (kriz)",
+    "trough": -46701.0,
+    "trough_date": "2025-06-18",
+    "status": "KRIZ",
+    "crisis_resolved": false,
+    "safe": false
+  },
+  {
+    "key": "1_erken_odeme",
+    "label": "ABC erken odeme (%2 indirim)",
+    "trough": 129699.0,
+    "trough_date": "2025-06-18",
+    "status": "GUVENLI",
+    "crisis_resolved": true,
+    "safe": true
+  },
+  {
+    "key": "2_tedarikci_bolme",
+    "label": "Tedarikci odemesini 2 taksite bol (+10g)",
+    "trough": 185221.0,
+    "trough_date": "2025-06-27",
+    "status": "GUVENLI",
+    "crisis_resolved": true,
+    "safe": true
+  },
+  {
+    "key": "3_kur_soku",
+    "label": "Kur +%10 sok (downside)",
+    "trough": -313901.0,
+    "trough_date": "2025-06-18",
+    "status": "KRIZ",
+    "crisis_resolved": false,
+    "safe": false
+  },
+  {
+    "key": "4_kombine_cozum",
+    "label": "KOMBINE COZUM (1+2)",
+    "trough": 361621.0,
+    "trough_date": "2025-06-27",
+    "status": "GUVENLI",
+    "crisis_resolved": true,
+    "safe": true
+  }
+]

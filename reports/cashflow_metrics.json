@@ -1,37 +1,37 @@
 {
-  "model": "LightGBM Time-Series v3 (outlier-robust, net_flow)",
-  "target": "net_flow (TL/gun)",
-  "clip_range": [
-    -116003.04,
-    136253.26
-  ],
-  "n_train": 484,
-  "cv_folds": 5,
-  "best_iter_avg": 272,
-  "cv_rmse_mean": 10627.41,
-  "cv_rmse_std": 2875.88,
-  "cv_mae_mean": 7062.57,
-  "scenario_analysis": {
-    "optimistic": {
-      "min_balance": 16432101.04,
-      "min_date": "2025-09-28",
-      "negative_days": 0,
-      "low_days": 0,
-      "total_expected_inflow": 2501300.32
+  "cutoff": "2025-05-31",
+  "horizon_days": 30,
+  "start_balance": 3157865.3,
+  "min_cash_buffer": 100000.0,
+  "acik_alacak_tl": 2724575.94,
+  "acik_borc_tl": 4080181.38,
+  "senaryolar": {
+    "iyimser": {
+      "min_bakiye": 229066.69,
+      "min_tarih": "2025-06-18",
+      "negatif_gun": 0,
+      "kriz": false,
+      "eksiye_duser": false
     },
     "normal": {
-      "min_balance": 16835206.04,
-      "min_date": "2025-09-28",
-      "negative_days": 0,
-      "low_days": 0,
-      "total_expected_inflow": 2933389.77
+      "min_bakiye": -46701.2,
+      "min_tarih": "2025-06-18",
+      "negatif_gun": 6,
+      "kriz": true,
+      "eksiye_duser": true
     },
-    "pessimistic": {
-      "min_balance": 16809842.77,
-      "min_date": "2025-09-28",
-      "negative_days": 0,
-      "low_days": 0,
-      "total_expected_inflow": 2981558.08
+    "kotumser": {
+      "min_bakiye": -216720.28,
+      "min_tarih": "2025-06-18",
+      "negatif_gun": 8,
+      "kriz": true,
+      "eksiye_duser": true
     }
+  },
+  "backtest": {
+    "gerceklesen_min": -59780.4,
+    "gerceklesen_tarih": "2025-06-18",
+    "mae": 64544.28,
+    "kriz_tarihi_sapmasi_gun": 0
   }
 }
