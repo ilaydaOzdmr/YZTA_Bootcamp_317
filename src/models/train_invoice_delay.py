@@ -1,17 +1,39 @@
 """
-ResilienceOS - Fatura Gecikme Tahmini (LightGBM Regresyon) v2
+ResilienceOS - Fatura Gecikme Tahmini (LightGBM Regresyon) v3
 =============================================================
 Dijital ikiz veritabanindan sales_invoices + customers tablolarini yukler,
 zengin musteri + fatura ozellikleriyle (RFM, tarihsel agregat, temporal)
-her faturayi KACGUN gecikecegini tahmin eden LightGBM modeli egitir.
+her faturanin KAC GUN gecikecegini tahmin eden LightGBM modeli egitir.
 
-v2 iyilestirmeleri:
+v2'den gelen ozellikler (korundu):
   - RFM musteri ozellikleri (recency, frequency, monetary)
   - Musteri bazinda gecikme trendi (son 90g vs tum gecmis)
   - Fatura anomali skoru (musterinin ortalama faturasina oranla)
   - Temporal: donem sonu / ay sonu / ceyrek sonu bayraklari
-  - 5-fold KFold CV ile daha guvenilir RMSE
   - Gec / zamaninda siniflandirma ek metrigi
+  - Acik faturalar icin risk skoru (0-100) + etiket
+
+v3 DUZELTMELERI (veri sizintisi / leakage giderildi):
+  1) segment_enc ve payment_reliability_score FEATURE OLARAK KULLANILMIYOR.
+     Sentetik veride days_late zaten segment profilinden uretiliyor,
+     payment_reliability_score da ayni profilden turetiliyor. Bunlari feature
+     yapmak, modelin cevabin uretildigi parametreyi okumasi demek (dongusel).
+     Gercek hayatta boyle hazir bir kolon da olmaz; musteri riski ancak
+     GECMIS ODEME DAVRANISINDAN cikarilir (asagidaki tarihsel ozellikler).
+     Not: segment yalnizca RAPORLAMA icin cikti tablosunda tutuluyor.
+
+  2) Tarihsel ozellikler artik SADECE ONCEKI faturalardan hesaplaniyor.
+     Onceki surumde musteri bazli groupby agregati tum faturalar uzerinden
+     alinip her satira merge ediliyordu; bu, tahmin edilen faturanin KENDI
+     days_late'ini (ve gelecek faturalarini) ozelligin icine sokuyordu.
+     Simdi ozellikler AS-OF (bilgi tarihi) dogru kurulur: bir faturanin ozelligine
+     yalnizca settled_date'i o faturanin KESIM TARIHINDEN once olan faturalar girer.
+     (Bir faturanin gecikmesi ancak odendiginde ogrenilir.)
+
+  3) KFold(shuffle=True) yerine TimeSeriesSplit kullaniliyor.
+     Zaman serisinde rastgele bolme, gelecekle egitip gecmisi test etmek
+     anlamina geliyordu. (forecast_demand_stock.py zaten zaman-bazli boluyor,
+     tutarlilik icin fatura modeli de ayni yaklasima gecti.)
 
 Ciktilar:
   models/invoice_delay_model.txt
@@ -30,11 +52,11 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
+    accuracy_score,
     mean_absolute_error,
     mean_squared_error,
-    accuracy_score,
 )
-from sklearn.model_selection import KFold
+from sklearn.model_selection import TimeSeriesSplit
 
 ROOT       = Path(__file__).resolve().parents[2]
 DB_PATH    = ROOT / "data" / "digital_twin.db"
@@ -60,112 +82,125 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 # --------------------------------------------------------------------------- #
-# Feature Engineering
+# Feature Engineering  (sizintisiz)
 # --------------------------------------------------------------------------- #
+HIST_COLS = [
+    "frequency", "monetary_avg", "recency_days",
+    "mean_days_late_hist", "std_days_late_hist", "late_rate_hist",
+    "late_rate_90d", "sum_amount_late_hist", "dispute_rate_hist",
+]
+
+
+def _add_customer_history(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Musteri odeme gecmisi ozellikleri - AS-OF (bilgi tarihi) dogru.
+
+    KRITIK: Bir faturanin gecikmesi (days_late) ancak ODENDIGINDE (settled_date)
+    ogrenilir. Dolayisiyla X faturasinin ozellikleri hesaplanirken yalnizca
+    settled_date'i X'in KESIM TARIHINDEN once olan faturalar kullanilabilir.
+
+    Onceki surumde gecmise ekleme invoice_date sirasina gore yapiliyordu; bu,
+    "kesilmis ama henuz odenmemis" faturalarin gecikmesini de ozellige sokuyordu
+    (olculdu: satirlarin ~%96'si). Yani model, tahmin aninda HENUZ BILINMEYEN
+    bilgiyi kullaniyordu. Asagidaki kurulum bunu tamamen ortadan kaldirir.
+    """
+    for c in HIST_COLS:
+        df[c] = np.nan
+
+    for _, grp in df.groupby("customer_id", sort=False):
+        g = grp.sort_values("invoice_date")
+        # Musterinin ODENMIS faturalari (bilgi ancak settled_date'te ortaya cikar)
+        paid = g[(g["status"] == "settled") & g["days_late"].notna()]
+        p_settled = paid["settled_date"].to_numpy()
+        p_issued  = paid["invoice_date"].to_numpy()
+        p_late    = paid["days_late"].to_numpy(dtype=float)
+        p_amount  = paid["amount"].to_numpy(dtype=float)
+        p_disp    = paid["disputed"].to_numpy(dtype=float)
+
+        for idx in g.index:
+            asof = df.at[idx, "invoice_date"]          # bu faturanin kesim tarihi
+            # BILINEN gecmis: settled_date < asof  (o an gercekten bilinen faturalar)
+            known = p_settled < np.datetime64(asof)
+            n = int(known.sum())
+            df.at[idx, "frequency"] = float(n)
+            df.at[idx, "sum_amount_late_hist"] = float(
+                p_amount[known & (p_late > 0)].sum()) if n else 0.0
+            if n:
+                kl, ka, kd = p_late[known], p_amount[known], p_disp[known]
+                is_late = (kl > 0).astype(float)
+                df.at[idx, "mean_days_late_hist"] = float(kl.mean())
+                df.at[idx, "std_days_late_hist"]  = float(kl.std(ddof=1)) if n > 1 else 0.0
+                df.at[idx, "late_rate_hist"]      = float(is_late.mean())
+                df.at[idx, "dispute_rate_hist"]   = float(kd.mean())
+                df.at[idx, "monetary_avg"]        = float(ka.mean())
+                # en son BILINEN odeme ne kadar once yapildi
+                df.at[idx, "recency_days"] = float(
+                    (asof - pd.Timestamp(p_settled[known].max())).days)
+                # son 90 gunde KESILMIS ve o an bilinen faturalarin gec odeme orani
+                cut = np.datetime64(asof - pd.Timedelta(days=90))
+                recent = known & (p_issued >= cut)
+                if recent.any():
+                    df.at[idx, "late_rate_90d"] = float((p_late[recent] > 0).mean())
+
+    return df
+
+
 def build_features(invoices: pd.DataFrame, customers: pd.DataFrame) -> pd.DataFrame:
     """
-    Zengin ozellik kumesi:
+    [Fatura]   log_amount, disputed, default_payment_terms,
+               inv_month, inv_quarter, inv_weekday, inv_dayofyear,
+               days_to_month_end, is_month_end, is_quarter_end
+    [RFM]      recency_days, frequency, monetary_avg          (gecmisten)
+    [Tarihsel] mean/std_days_late_hist, late_rate_hist,
+               late_rate_90d, sum_amount_late_hist, dispute_rate_hist  (gecmisten)
+    [Anomali]  amount_vs_cust_avg
 
-    [Fatura]
-      log_amount, disputed, default_payment_terms
-      inv_month, inv_quarter, inv_weekday, inv_dayofyear
-      days_to_month_end, is_quarter_end, is_month_end
-
-    [Musteri segment]
-      segment_enc, payment_reliability_score
-
-    [RFM - gecmis settled faturalardan]
-      recency_days       : son odemenin kac gun once yapildigi
-      frequency          : toplam odeme sayisi
-      monetary_avg       : ortalama fatura tutari
-
-    [Tarihsel agregat]
-      mean_days_late_hist   : gecmis ortalama gecikme
-      std_days_late_hist    : gecikme std
-      late_rate_hist        : gec odeme orani
-      late_rate_90d         : son 90 gundeki gec odeme orani (trend)
-      sum_amount_late_hist  : gec odenen toplam TL
-      dispute_rate_hist     : gecmis itiraz orani
-
-    [Anomali]
-      amount_vs_cust_avg    : fatura tutarinin musterinin ortalama tutar'a orani
+    NOT: segment / payment_reliability_score FEATURE DEGIL (bkz. v3 notu).
     """
     df = invoices.copy()
     df["invoice_date"] = pd.to_datetime(df["invoice_date"])
     df["due_date"]     = pd.to_datetime(df["due_date"])
+    # as-of gecmis hesabi settled_date'e dayanir -> datetime olmali
+    df["settled_date"] = pd.to_datetime(df["settled_date"], errors="coerce")
 
     # ---- Fatura zaman ozellikleri ----
-    df["inv_month"]       = df["invoice_date"].dt.month
-    df["inv_quarter"]     = df["invoice_date"].dt.quarter
-    df["inv_weekday"]     = df["invoice_date"].dt.dayofweek
-    df["inv_dayofyear"]   = df["invoice_date"].dt.dayofyear
-    df["days_to_month_end"] = df["invoice_date"].apply(
-        lambda d: (d + pd.offsets.MonthEnd(0) - d).days
-    )
-    df["is_month_end"]    = (df["days_to_month_end"] <= 3).astype(int)
-    df["is_quarter_end"]  = (
-        (df["inv_month"].isin([3, 6, 9, 12])) & df["is_month_end"]
+    df["inv_month"]     = df["invoice_date"].dt.month
+    df["inv_quarter"]   = df["invoice_date"].dt.quarter
+    df["inv_weekday"]   = df["invoice_date"].dt.dayofweek
+    df["inv_dayofyear"] = df["invoice_date"].dt.dayofyear
+    df["days_to_month_end"] = (
+        df["invoice_date"] + pd.offsets.MonthEnd(0) - df["invoice_date"]
+    ).dt.days
+    df["is_month_end"]   = (df["days_to_month_end"] <= 3).astype(int)
+    df["is_quarter_end"] = (
+        df["inv_month"].isin([3, 6, 9, 12]) & df["is_month_end"].astype(bool)
     ).astype(int)
     df["log_amount"] = np.log1p(df["amount"])
 
-    # ---- Musteri birlestir ----
+    # ---- Musteri meta: vade sartlari feature; segment SADECE raporlama icin ----
     df = df.merge(
-        customers[["customer_id", "segment", "payment_reliability_score",
-                   "default_payment_terms"]],
+        customers[["customer_id", "segment", "default_payment_terms"]],
         on="customer_id", how="left",
     )
-    seg_map = {"A": 0, "B": 1, "C": 2, "D": 3}
-    df["segment_enc"] = df["segment"].map(seg_map).fillna(1)
 
-    # ---- Sadece settled faturalardan tarihsel ozellikler ----
-    settled = df[df["status"] == "settled"].copy()
-    settled["is_late"] = (settled["days_late"] > 0).astype(int)
-    ref_date = df["invoice_date"].max()
+    # ---- Sizintisiz musteri odeme gecmisi ----
+    df = df.sort_values(["customer_id", "invoice_date"]).reset_index(drop=True)
+    df = _add_customer_history(df)
 
-    # --- RFM ---
-    rfm = settled.groupby("customer_id").agg(
-        recency_days   = ("invoice_date", lambda x: (ref_date - x.max()).days),
-        frequency      = ("invoice_id",   "count"),
-        monetary_avg   = ("amount",        "mean"),
-    ).reset_index()
+    # Gecmisi olmayan (yeni musteri / ilk fatura) -> NOTR degerler.
+    # NOT: global medyan ile doldurmak, tum veriden (gelecek dahil) bilgi sizdirirdi.
+    df[["mean_days_late_hist", "std_days_late_hist", "late_rate_hist",
+        "late_rate_90d", "dispute_rate_hist", "sum_amount_late_hist",
+        "frequency"]] = df[["mean_days_late_hist", "std_days_late_hist", "late_rate_hist",
+                            "late_rate_90d", "dispute_rate_hist", "sum_amount_late_hist",
+                            "frequency"]].fillna(0.0)
+    df["recency_days"] = df["recency_days"].fillna(999.0)      # hic odeme gorulmedi
+    df["monetary_avg"] = df["monetary_avg"].fillna(df["amount"])  # kendi tutari
 
-    # --- Tarihsel agregat ---
-    hist = settled.groupby("customer_id").agg(
-        mean_days_late_hist  = ("days_late", "mean"),
-        std_days_late_hist   = ("days_late", "std"),
-        late_rate_hist       = ("is_late",   "mean"),
-        sum_amount_late_hist = ("amount",    lambda x: x[settled.loc[x.index, "is_late"] == 1].sum()),
-        dispute_rate_hist    = ("disputed",  "mean"),
-    ).reset_index()
+    # Anomali: faturanin musterinin olagan tutarindan sapmasi
+    df["amount_vs_cust_avg"] = df["amount"] / (df["monetary_avg"] + 1)
 
-    # Son 90 gun gec odeme trendi
-    cutoff_90 = ref_date - pd.Timedelta(days=90)
-    settled_90 = settled[settled["invoice_date"] >= cutoff_90]
-    late_90 = settled_90.groupby("customer_id")["is_late"].mean().reset_index()
-    late_90.rename(columns={"is_late": "late_rate_90d"}, inplace=True)
-
-    # Musteri ortalama fatura (anomali icin)
-    cust_avg_amount = settled.groupby("customer_id")["amount"].mean().reset_index()
-    cust_avg_amount.rename(columns={"amount": "cust_avg_amount"}, inplace=True)
-
-    # --- Birlestir ---
-    for extra in [rfm, hist, late_90, cust_avg_amount]:
-        df = df.merge(extra, on="customer_id", how="left")
-
-    # Eksik deger: yeni musteri -> global medyan
-    fill_cols = [
-        "mean_days_late_hist", "std_days_late_hist", "late_rate_hist",
-        "sum_amount_late_hist", "dispute_rate_hist",
-        "recency_days", "frequency", "monetary_avg", "late_rate_90d",
-    ]
-    for col in fill_cols:
-        df[col] = df[col].fillna(df[col].median())
-    df["cust_avg_amount"] = df["cust_avg_amount"].fillna(df["amount"].median())
-
-    # Anomali: musterinin olagan tutarindan sapma
-    df["amount_vs_cust_avg"] = df["amount"] / (df["cust_avg_amount"] + 1)
-
-    return df
+    return df.sort_values("invoice_date").reset_index(drop=True)
 
 
 FEATURE_COLS = [
@@ -173,11 +208,9 @@ FEATURE_COLS = [
     "log_amount", "disputed", "default_payment_terms",
     "inv_month", "inv_quarter", "inv_weekday", "inv_dayofyear",
     "days_to_month_end", "is_month_end", "is_quarter_end",
-    # Musteri
-    "segment_enc", "payment_reliability_score",
-    # RFM
+    # RFM (gecmisten)
     "recency_days", "frequency", "monetary_avg",
-    # Tarihsel
+    # Tarihsel odeme davranisi (gecmisten)
     "mean_days_late_hist", "std_days_late_hist", "late_rate_hist",
     "late_rate_90d", "sum_amount_late_hist", "dispute_rate_hist",
     # Anomali
@@ -187,10 +220,12 @@ TARGET = "days_late"
 
 
 # --------------------------------------------------------------------------- #
-# 5-Fold CV + Final Model
+# Zaman-bazli CV + Final Model
 # --------------------------------------------------------------------------- #
 def train(df: pd.DataFrame) -> tuple[lgb.Booster, dict]:
-    train_df = df[(df["status"] == "settled") & df[TARGET].notna()].copy()
+    # Zaman sirasi kritik: TimeSeriesSplit her fold'da gecmisle egitip gelecegi test eder
+    train_df = (df[(df["status"] == "settled") & df[TARGET].notna()]
+                .sort_values("invoice_date").reset_index(drop=True))
     X = train_df[FEATURE_COLS].values
     y = train_df[TARGET].values
 
@@ -210,48 +245,37 @@ def train(df: pd.DataFrame) -> tuple[lgb.Booster, dict]:
         "seed":              SEED,
     }
 
-    kf = KFold(n_splits=N_FOLDS, shuffle=True, random_state=SEED)
-    rmse_list, mae_list, acc_list = [], [], []
-    best_iters = []
+    tscv = TimeSeriesSplit(n_splits=N_FOLDS)
+    rmse_list, mae_list, acc_list, best_iters = [], [], [], []
 
-    for fold, (tr_idx, val_idx) in enumerate(kf.split(X)):
-        X_tr, X_val = X[tr_idx], X[val_idx]
-        y_tr, y_val = y[tr_idx], y[val_idx]
-
-        dtrain = lgb.Dataset(X_tr, label=y_tr, feature_name=FEATURE_COLS)
-        dval   = lgb.Dataset(X_val, label=y_val, reference=dtrain)
-
+    for tr_idx, val_idx in tscv.split(X):
+        dtrain = lgb.Dataset(X[tr_idx], label=y[tr_idx], feature_name=FEATURE_COLS)
+        dval   = lgb.Dataset(X[val_idx], label=y[val_idx], reference=dtrain)
         m = lgb.train(
             params, dtrain, num_boost_round=1000,
             valid_sets=[dval],
-            callbacks=[
-                lgb.early_stopping(50, verbose=False),
-                lgb.log_evaluation(0),
-            ],
+            callbacks=[lgb.early_stopping(50, verbose=False), lgb.log_evaluation(0)],
         )
-        y_pred = m.predict(X_val).clip(min=0)
-        rmse_list.append(float(np.sqrt(mean_squared_error(y_val, y_pred))))
-        mae_list.append(float(mean_absolute_error(y_val, y_pred)))
-        # Binary accuracy: gec (>0) mi degil mi
-        acc_list.append(float(accuracy_score(y_val > 0, y_pred > 0)))
+        y_pred = m.predict(X[val_idx]).clip(min=0)
+        rmse_list.append(float(np.sqrt(mean_squared_error(y[val_idx], y_pred))))
+        mae_list.append(float(mean_absolute_error(y[val_idx], y_pred)))
+        acc_list.append(float(accuracy_score(y[val_idx] > 0, y_pred > 0)))
         best_iters.append(m.best_iteration)
 
     # Final model: tum veriyle, ortalama best_iter kadar
-    best_n = int(np.mean(best_iters))
-    dtrain_full = lgb.Dataset(X, label=y, feature_name=FEATURE_COLS)
+    best_n = max(int(np.mean(best_iters)), 10)
     final_model = lgb.train(
-        params, dtrain_full,
-        num_boost_round=best_n,
-        callbacks=[lgb.log_evaluation(0)],
+        params, lgb.Dataset(X, label=y, feature_name=FEATURE_COLS),
+        num_boost_round=best_n, callbacks=[lgb.log_evaluation(0)],
     )
 
-    # Baseline: ortalama ile tahmin
     baseline_rmse = float(np.sqrt(mean_squared_error(y, np.full_like(y, y.mean()))))
-    improvement   = (baseline_rmse - np.mean(rmse_list)) / baseline_rmse * 100
+    improvement   = (baseline_rmse - float(np.mean(rmse_list))) / baseline_rmse * 100
 
     metrics = {
-        "model":              "LightGBM Regressor v2",
+        "model":              "LightGBM Regressor v3 (leak-free)",
         "target":             "days_late",
+        "validation":         f"TimeSeriesSplit({N_FOLDS}) - zaman bazli",
         "n_samples":          len(train_df),
         "n_features":         len(FEATURE_COLS),
         "cv_folds":           N_FOLDS,
@@ -262,6 +286,9 @@ def train(df: pd.DataFrame) -> tuple[lgb.Booster, dict]:
         "cv_late_accuracy":   round(float(np.mean(acc_list)), 4),
         "baseline_rmse":      round(baseline_rmse, 4),
         "improvement_pct":    round(improvement, 2),
+        "excluded_features":  ["segment_enc", "payment_reliability_score"],
+        "exclusion_reason":   ("Sentetik uretici days_late'i segment profilinden uretiyor; "
+                               "bu kolonlari feature yapmak dongusel (leakage) olur."),
         "feature_importance": dict(
             zip(FEATURE_COLS,
                 final_model.feature_importance(importance_type="gain").tolist())
@@ -273,36 +300,30 @@ def train(df: pd.DataFrame) -> tuple[lgb.Booster, dict]:
 # --------------------------------------------------------------------------- #
 # Acik Fatura Risk Raporlama
 # --------------------------------------------------------------------------- #
-def predict_open_invoices(
-    model: lgb.Booster,
-    df: pd.DataFrame,
-) -> pd.DataFrame:
+def predict_open_invoices(model: lgb.Booster, df: pd.DataFrame) -> pd.DataFrame:
     open_df = df[df["status"] == "open"].copy()
     if open_df.empty:
         return pd.DataFrame()
 
-    preds = model.predict(open_df[FEATURE_COLS]).clip(min=0)
-    open_df["predicted_days_late"] = preds.round(1)
-    open_df["due_date"]            = pd.to_datetime(open_df["due_date"])
+    open_df["predicted_days_late"] = model.predict(open_df[FEATURE_COLS]).clip(min=0).round(1)
     open_df["estimated_settlement"] = (
-        open_df["due_date"]
-        + pd.to_timedelta(open_df["predicted_days_late"], unit="D")
+        open_df["due_date"] + pd.to_timedelta(open_df["predicted_days_late"], unit="D")
     )
 
-    # Risk skoru 0-100: gecikme + disputed + segment + tutar agirlikli
+    # Risk skoru 0-100. Musteri riski artik segment'ten degil, GECMIS gec odeme
+    # oranindan (late_rate_hist) geliyor -> sizintisiz ve gercek hayatta da hesaplanabilir.
     open_df["risk_score"] = (
         (open_df["predicted_days_late"] / 30.0).clip(0, 1) * 45
         + open_df["disputed"] * 20
-        + (open_df["segment_enc"] / 3.0) * 25
+        + open_df["late_rate_hist"].clip(0, 1) * 25
         + (open_df["amount_vs_cust_avg"].clip(1, 3) - 1) / 2.0 * 10
     ).round(1)
 
-    # Risk etiketi
-    def risk_label(s):
-        if s >= 80:   return "KRITIK"
-        if s >= 60:   return "YUKSEK"
-        if s >= 40:   return "ORTA"
-        if s >= 20:   return "DUSUK"
+    def risk_label(s: float) -> str:
+        if s >= 80: return "KRITIK"
+        if s >= 60: return "YUKSEK"
+        if s >= 40: return "ORTA"
+        if s >= 20: return "DUSUK"
         return "GUVENLI"
 
     open_df["risk_label"] = open_df["risk_score"].apply(risk_label)
@@ -319,7 +340,7 @@ def predict_open_invoices(
 # --------------------------------------------------------------------------- #
 def main() -> None:
     print("=" * 65)
-    print("  ResilienceOS - Fatura Gecikme Tahmini  (LightGBM v2)")
+    print("  ResilienceOS - Fatura Gecikme Tahmini  (LightGBM v3, leak-free)")
     print("=" * 65)
 
     if not DB_PATH.exists():
@@ -334,48 +355,47 @@ def main() -> None:
     invoices, customers = load_data()
     print(f"  Fatura: {len(invoices):,}  |  Musteri: {len(customers):,}")
 
-    print("[2/4] Ozellikler olusturuluyor  ({} ozellik)...".format(len(FEATURE_COLS)))
+    print(f"[2/4] Sizintisiz ozellikler olusturuluyor ({len(FEATURE_COLS)} ozellik)...")
     df = build_features(invoices, customers)
-    settled_n = (df["status"] == "settled").sum()
-    open_n    = (df["status"] == "open").sum()
+    settled_n = int((df["status"] == "settled").sum())
+    open_n    = int((df["status"] == "open").sum())
     print(f"  Egitim (settled): {settled_n:,}  |  Tahmin (acik): {open_n:,}")
 
-    print(f"[3/4] {N_FOLDS}-fold KFold CV ile LightGBM egitiliyor...")
+    print(f"[3/4] TimeSeriesSplit({N_FOLDS}) ile LightGBM egitiliyor (zaman bazli)...")
     model, metrics = train(df)
 
     print("[4/4] Acik fatura risk raporu uretiliyor...")
     preds = predict_open_invoices(model, df)
 
     model.save_model(str(MODEL_PATH))
-    METRICS_PATH.write_text(json.dumps(metrics, indent=2, ensure_ascii=False))
+    METRICS_PATH.write_text(json.dumps(metrics, indent=2, ensure_ascii=False),
+                            encoding="utf-8")
     if not preds.empty:
         preds.to_csv(PRED_PATH, index=False)
 
-    # ----- Ozet Cikti -----
     print("\n" + "=" * 65)
     print("  SONUCLAR")
     print("=" * 65)
-    print(f"  CV RMSE      : {metrics['cv_rmse_mean']} gun  "
-          f"(+/- {metrics['cv_rmse_std']})")
+    print(f"  CV RMSE      : {metrics['cv_rmse_mean']} gun  (+/- {metrics['cv_rmse_std']})")
     print(f"  CV MAE       : {metrics['cv_mae_mean']} gun")
     print(f"  Gec/zamaninda acc : {metrics['cv_late_accuracy']*100:.1f}%")
     print(f"  Baseline RMSE: {metrics['baseline_rmse']} gun")
     print(f"  Iyilestirme  : %{metrics['improvement_pct']}")
-    print(f"  Best iter    : {metrics['best_iteration_avg']}")
+    print(f"  Dogrulama    : {metrics['validation']}")
+    print(f"  Cikarilan    : {', '.join(metrics['excluded_features'])} (leakage)")
     print("-" * 65)
 
     if not preds.empty:
-        # Risk dagılımı
         rc = preds["risk_label"].value_counts()
-        print("\n  Acik Fatura Risk Dagılımı:")
+        print("\n  Acik Fatura Risk Dagilimi:")
         for label in ["KRITIK", "YUKSEK", "ORTA", "DUSUK", "GUVENLI"]:
-            cnt = rc.get(label, 0)
-            if cnt > 0:
+            cnt = int(rc.get(label, 0))
+            if cnt:
                 print(f"    {label:<10}: {cnt} fatura")
 
-        print(f"\n  En Riskli 5 Acik Fatura:")
-        hdr = f"  {'FaturaID':<10} {'MstID':<6} {'Seg':<5} {'Tutar':>12}  {'Tahmin':>8}  {'Risk':>6}  Etiket"
-        print(hdr)
+        print("\n  En Riskli 5 Acik Fatura:")
+        print(f"  {'FaturaID':<10} {'MstID':<6} {'Seg':<5} {'Tutar':>12}  "
+              f"{'Tahmin':>8}  {'Risk':>6}  Etiket")
         print(f"  {'-'*65}")
         for _, row in preds.head(5).iterrows():
             print(f"  {row['invoice_id']:<10} {row['customer_id']:<6} "
@@ -388,10 +408,8 @@ def main() -> None:
     print(f"  Tahminler -> {PRED_PATH.name}")
     print("=" * 65)
 
-    # Ozellik onemliligi
-    fi = sorted(metrics["feature_importance"].items(),
-                key=lambda x: x[1], reverse=True)
-    max_score = max(v for _, v in fi) or 1
+    fi = sorted(metrics["feature_importance"].items(), key=lambda x: x[1], reverse=True)
+    max_score = max((v for _, v in fi), default=1) or 1
     print("\n  Ozellik Onemliligi (Top 8):")
     for feat, score in fi[:8]:
         bar = "#" * int(score / max_score * 28)
