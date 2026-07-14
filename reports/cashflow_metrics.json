@@ -7,31 +7,41 @@
   "acik_borc_tl": 4080181.38,
   "senaryolar": {
     "iyimser": {
-      "min_bakiye": 229066.69,
+      "min_bakiye": 299204.27,
       "min_tarih": "2025-06-18",
       "negatif_gun": 0,
       "kriz": false,
       "eksiye_duser": false
     },
     "normal": {
-      "min_bakiye": -46701.2,
+      "min_bakiye": 7717.34,
       "min_tarih": "2025-06-18",
-      "negatif_gun": 6,
+      "negatif_gun": 0,
       "kriz": true,
-      "eksiye_duser": true
+      "eksiye_duser": false
     },
     "kotumser": {
-      "min_bakiye": -216720.28,
-      "min_tarih": "2025-06-18",
-      "negatif_gun": 8,
+      "min_bakiye": -217702.28,
+      "min_tarih": "2025-06-17",
+      "negatif_gun": 10,
       "kriz": true,
       "eksiye_duser": true
     }
   },
+  "monte_carlo": {
+    "n_sims": 2000,
+    "sigma_ort": 3.98,
+    "eksiye_dusme_olasiligi": 0.732,
+    "tampon_ihlali_olasiligi": 0.995,
+    "cukur_P5": -81822.13,
+    "cukur_P50": -21223.25,
+    "cukur_P95": 37079.19,
+    "en_olasi_kriz_tarihi": "2025-06-18"
+  },
   "backtest": {
     "gerceklesen_min": -59780.4,
     "gerceklesen_tarih": "2025-06-18",
-    "mae": 64544.28,
+    "mae": 49326.41,
     "kriz_tarihi_sapmasi_gun": 0
   }
 }
