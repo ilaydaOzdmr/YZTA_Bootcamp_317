@@ -38,8 +38,17 @@ N_CUSTOMERS = 40
 N_SUPPLIERS  = 15
 N_PRODUCTS   = 60
 
-OPENING_CASH         = 650_000.0        # baslangic kasa (TL)
-MONTHLY_FIXED_COST   = 150_000.0        # kira + maas (her ayin 5'i)
+OPENING_CASH         = 2_300_000.0      # baslangic kasa (TL). Isletme sermayesi dongusunu
+                                        # karsilar: satislar 15-60 gun vadeyle tahsil edilirken
+                                        # alis/kira hemen odenir; ilk aylarda ~2M'lik acik olusur.
+                                        # Dusuk acilis kasasi isletmeyi ilk yil boyunca negatife
+                                        # sokuyordu (demo krizini golgeliyordu).
+MONTHLY_FIXED_COST   = 700_000.0        # kira + maas (her ayin 5'i); COGS+opex ~ ciro
+                                        # -> normal operasyon net ~0 (ince marjli KOBI),
+                                        #    kasa dar bir bantta kalir, crunch odemesi
+                                        #    gercekci buyuklukte olur.
+PURCHASE_RATE        = 2.60             # gunluk ort. alim sayisi (COGS ~ ciro'nun %70'i)
+PURCHASE_QTY_RANGE   = (20, 140)        # cok sayida kucuk alim -> duzgun (dusuk varyansli) cikis
 TARGET_CRUNCH_TROUGH = -60_000.0        # crunch haftasi hedef kasa dibi (TL)
 
 # Demo darbogazi haftasi — 3 olay bu hafta cakisir
@@ -61,9 +70,9 @@ SHOCK_DAILY    = 0.18                   # TL/gun soku buyuklugu
 # IBM Finance Factoring istatistiklerine kalibre:
 #   ort ~3.4g, medyan 0, gec ~%36, p90 ~13
 SEGMENT_PROFILES = {
-    "A": {"mean_late": -3.0, "std": 2.5, "dispute_rate": 0.02, "weight": 0.62},
-    "B": {"mean_late":  6.0, "std": 5.0, "dispute_rate": 0.08, "weight": 0.22},
-    "C": {"mean_late": 12.0, "std": 6.0, "dispute_rate": 0.15, "weight": 0.11},
+    "A": {"mean_late": -4.0, "std": 2.5, "dispute_rate": 0.02, "weight": 0.68},
+    "B": {"mean_late":  5.0, "std": 5.0, "dispute_rate": 0.08, "weight": 0.18},
+    "C": {"mean_late": 12.0, "std": 6.0, "dispute_rate": 0.15, "weight": 0.09},
     "D": {"mean_late": 18.0, "std": 8.0, "dispute_rate": 0.25, "weight": 0.05},
 }
 
@@ -225,11 +234,15 @@ def gen_purchase_invoices(
     rows = []
     pid  = 1
     for d in daterange(START_DATE, END_DATE):
-        if rng.random() < 0.35:
+        # Alim hacmi satis hacmine oranli olmali (COGS). Onceki surumde gunluk
+        # %35 olasilikla TEK alim uretiliyordu; bu, alislarin ciro'nun sadece
+        # ~%19'u kalmasina ve kasanin 18 ayda 23M TL'ye sismesine yol aciyordu.
+        # PURCHASE_RATE, COGS'u ciro'nun ~%70'ine getirir (gercekci ince marj).
+        for _ in range(int(rng.poisson(PURCHASE_RATE))):
             sup   = suppliers[int(rng.integers(0, len(suppliers)))]
             prods = prod_by_supplier.get(sup["supplier_id"], products)
             prod  = prods[int(rng.integers(0, len(prods)))]
-            qty   = int(rng.integers(50, 400))
+            qty   = int(rng.integers(*PURCHASE_QTY_RANGE))
             amount = round(qty * prod["unit_cost"], 2)
             terms  = int(rng.choice([15, 30, 45]))
             due    = d + timedelta(days=terms)
@@ -299,7 +312,21 @@ def gen_inventory_log(
     ramp_start = CRUNCH_WEEK_END - timedelta(days=30)
     stock      = {p["product_id"]: p["init_stock"] for p in products}
 
+    # --- Talebe GERCEK YAPI ver ---
+    # Onceki surumde talep tum urunler icin sabit normal(8,4) idi, yani saf gurultu:
+    # ogrenilecek hicbir sinyal yoktu (talep modeli sizinti olmadan ortalamayi ancak
+    # %1 gecebiliyordu). Asagida urun bazli taban hiz + haftanin gunu + mevsimsellik
+    # + hafif buyume trendi eklenerek gercekci ve ogrenilebilir bir talep uretiliyor.
+    base_rate  = {p["product_id"]: float(rng.uniform(3.0, 14.0)) for p in products}
+    DOW_FACTOR = [1.15, 1.10, 1.05, 1.00, 1.20, 0.55, 0.30]   # Pzt..Paz (hafta sonu dusuk)
+    total_days = max((END_DATE - START_DATE).days, 1)
+
     for d in daterange(START_DATE, END_DATE):
+        doy      = d.timetuple().tm_yday
+        seasonal = 1.0 + 0.25 * np.sin(2 * np.pi * (doy - 80) / 365.0)   # tekstil mevsimselligi
+        trend    = 1.0 + 0.15 * ((d - START_DATE).days / total_days)     # hafif buyume
+        dow      = DOW_FACTOR[d.weekday()]
+
         for p in products:
             pid     = p["product_id"]
             opening = stock[pid]
@@ -311,7 +338,8 @@ def gen_inventory_log(
                 units_sold  = min(opening, base_demand)
                 received    = 0                 # siparis yok -> tukenir
             else:
-                base_demand = max(0, int(rng.normal(8, 4)))
+                mu          = base_rate[pid] * dow * seasonal * trend
+                base_demand = max(0, int(round(rng.normal(mu, mu * 0.25))))
                 units_sold  = min(opening, base_demand)
                 received    = 0
                 if opening - units_sold < p["reorder_point"]:
@@ -565,9 +593,9 @@ def print_calibration(sales: list[dict]) -> None:
 
 
 # 13 Dogrulama Kontrolu (verify_digital_twin.py'a tasindi!; burasi ozet check)
-def quick_verify(tables: dict) -> int:
+def quick_verify(tables: dict) -> tuple[int, int]:
     """
-    Kritik tutarlilik kontrolleri. Gecen sayi dondurur.
+    Kritik tutarlilik kontrolleri. (gecen, toplam) dondurur.
     Tam 13-check icin: python src/data_generator/verify_digital_twin.py
     """
     checks = []
@@ -660,18 +688,31 @@ def main() -> None:
     crunch_end_iso = CRUNCH_WEEK_END.isoformat()
 
     # Crunch haftasindaki minimum on-bakiye (odeme olmadan)
+    crunch_start_iso = CRUNCH_WEEK_START.isoformat()
     crunch_week_balances = [r["balance_after"] for r in prelim
                             if big_due_iso <= r["date"] <= crunch_end_iso]
     M = min(crunch_week_balances) if crunch_week_balances else OPENING_CASH
 
-    # P = M - hedef_dip  => crunch odemesi bu kadar olmali
-    # %10 buffer: simülasyon her seferinde biraz farkli cikabilir
-    crunch_amount = round((M - TARGET_CRUNCH_TROUGH) * 1.10 / 1_000) * 1_000
-    crunch_amount = max(50_000.0, crunch_amount)   # minimum 50K TL
-    inject_crunch_payment(purchases, suppliers, products, crunch_amount)
+    def _trough_for(amount: float):
+        """Verilen crunch odemesiyle ledger'i kurar; (cukur, purchases, ledger) doner."""
+        pp = list(purchases)                    # kopya: enjeksiyonlar birikmesin
+        inject_crunch_payment(pp, suppliers, products, amount)
+        led = derive_bank_ledger(sales, pp, np.random.default_rng(SEED + 1))
+        vals = [r["balance_after"] for r in led
+                if crunch_start_iso <= r["date"] <= crunch_end_iso]
+        return (min(vals) if vals else 0.0), pp, led
 
-    # 2. gecis: final ledger (operasyonel giderler ayni rng ile tutarli)
-    bank  = derive_bank_ledger(sales, purchases, np.random.default_rng(SEED + 1))
+    # 1. tahmin: P = M - hedef   (carpan/buffer EKLENMEZ; cukur = -0.10*M + 1.10*hedef
+    #    gibi M ile olceklenen bir sapma dogurur.)
+    p0 = max(50_000.0, round((M - TARGET_CRUNCH_TROUGH) / 1_000) * 1_000)
+    t1, _, _ = _trough_for(p0)
+
+    # 2. duzeltme: cukur, odemeye LINEER tepki verir -> tek adimda hedefe oturur.
+    #    (M tahmini, gun-ici olay siralamasi ve crunch haftasindaki diger akislar
+    #     yuzunden kayar; bu duzeltme onu kapatir.)
+    crunch_amount = max(50_000.0,
+                        round((p0 + (t1 - TARGET_CRUNCH_TROUGH)) / 1_000) * 1_000)
+    _, purchases, bank = _trough_for(crunch_amount)
 
     print("[8/8] Makro seri uretiliyor (kur soku dahil)...")
     macro = gen_macro_daily(rng)
@@ -717,7 +758,7 @@ def main() -> None:
 
     # Hizli dogrulama
     passed = quick_verify(tables)
-    print(f"\n  Toplam: {passed}/5 hizli kontrol gecti.")
+    print(f"\n  Hizli kontrol: {passed} kontrol gecti.")
     print("  Tam dogrulama: python src/data_generator/verify_digital_twin.py")
     print("=" * 65)
     print("\n  NOT: macro_daily su an placeholder.")
