@@ -79,37 +79,51 @@ def build_product_features(
     cats = products["category"].unique()
     cat_map = {c: i for i, c in enumerate(sorted(cats))}
 
+    # ------------------------------------------------------------------ #
+    # SIZINTI NOTU (v3)
+    # Uretici kimligi:  units_sold = opening_stock + units_received - closing_stock
+    # (veride %100 birebir gecerli). Bu yuzden asagidakiler FEATURE OLARAK KULLANILAMAZ:
+    #   - units_received : uretici bunu "opening - units_sold < reorder" kosuluna gore
+    #                      belirliyor, yani DOGRUDAN hedefe bagli.
+    #   - closing_stock  : ayni gunun kapanis stogu; opening ve received ile birlikte
+    #                      hedefi cebirsel olarak cozer.
+    # Ayni sekilde units_sold uzerindeki rolling/EWMA/diff hesaplari SHIFT'SIZ
+    # yapilirsa BUGUNUN hedefini icerir. Hepsi .shift(1) ile gecmise kaydirildi.
+    # (Onceki surumde bu sizintilar RMSE'yi 0.30 gibi gercek disi bir seviyeye
+    #  dusuruyordu; asagidaki sizintisiz kurulumda gercek performans olculur.)
+    # ------------------------------------------------------------------ #
     frames = []
     for pid, grp in inv_log.groupby("product_id"):
         grp = grp.sort_values("date").copy()
         meta = prod_meta.get(pid, {})
         reorder_pt = meta.get("reorder_point", 50)
 
-        # Lag: satislar
+        past_sold  = grp["units_sold"].shift(1)      # yalnizca GECMIS satislar
+        past_close = grp["closing_stock"].shift(1)   # yalnizca GECMIS kapanis stoku
+
+        # Lag: satislar / stok
         for lag in [1, 3, 7, 14]:
             grp[f"sold_lag{lag}"]  = grp["units_sold"].shift(lag)
             grp[f"stock_lag{lag}"] = grp["closing_stock"].shift(lag)
 
-        # Rolling ortalama
+        # Rolling ortalama (shift'li -> bugunu icermez)
         for w in [7, 14, 30]:
-            grp[f"sold_roll{w}_mean"] = grp["units_sold"].rolling(w).mean()
-            grp[f"sold_roll{w}_std"]  = grp["units_sold"].rolling(w).std()
+            grp[f"sold_roll{w}_mean"] = past_sold.rolling(w).mean()
+            grp[f"sold_roll{w}_std"]  = past_sold.rolling(w).std()
 
-        # EWMA (son gunlere daha fazla agirlik)
-        grp["sold_ewma7"]  = grp["units_sold"].ewm(span=7,  adjust=False).mean()
-        grp["sold_ewma14"] = grp["units_sold"].ewm(span=14, adjust=False).mean()
-        grp["sold_ewma30"] = grp["units_sold"].ewm(span=30, adjust=False).mean()
+        # EWMA (shift'li)
+        grp["sold_ewma7"]  = past_sold.ewm(span=7,  adjust=False).mean()
+        grp["sold_ewma14"] = past_sold.ewm(span=14, adjust=False).mean()
+        grp["sold_ewma30"] = past_sold.ewm(span=30, adjust=False).mean()
 
-        # Stok ozellikleri
-        grp["stock_roll7_min"] = grp["closing_stock"].rolling(7).min()
-        grp["stock_vs_reorder"]= grp["closing_stock"] / (reorder_pt + 1)
-        grp["stock_trend_7d"]  = grp["closing_stock"].diff(7)
-        grp["stock_ratio"]     = grp["closing_stock"] / (grp["opening_stock"] + 1)
-        grp["received_flag"]   = (grp["units_received"] > 0).astype(int)
+        # Stok ozellikleri: gun BASINDA bilinen opening_stock + GECMIS kapanislar
+        grp["stock_roll7_min"]  = past_close.rolling(7).min()
+        grp["stock_vs_reorder"] = grp["opening_stock"] / (reorder_pt + 1)
+        grp["stock_trend_7d"]   = past_close.diff(7)
 
-        # Talep / stok trendi
-        grp["demand_trend_7d"]  = grp["units_sold"].diff(7)
-        grp["demand_accel"]     = grp["units_sold"].diff(1).diff(1)
+        # Talep trendi (shift'li)
+        grp["demand_trend_7d"] = past_sold.diff(7)
+        grp["demand_accel"]    = past_sold.diff(1).diff(1)
 
         # Takvim
         grp["dayofweek"]  = grp["date"].dt.dayofweek
@@ -138,13 +152,14 @@ FEATURE_COLS = (
     + [f"sold_roll{w}_mean" for w in [7, 14, 30]]
     + [f"sold_roll{w}_std"  for w in [7, 14, 30]]
     + ["sold_ewma7", "sold_ewma14", "sold_ewma30"]
-    + ["stock_roll7_min", "stock_vs_reorder", "stock_trend_7d",
-       "stock_ratio", "received_flag"]
+    + ["stock_roll7_min", "stock_vs_reorder", "stock_trend_7d"]
     + ["demand_trend_7d", "demand_accel"]
     + ["dayofweek", "dayofmonth", "month", "is_weekend", "sin_dow", "cos_dow"]
-    + ["opening_stock", "units_received"]
+    + ["opening_stock"]                     # gun BASINDA bilinir -> mesru
     + ["product_id", "category_enc", "unit_cost", "reorder_point"]
 )
+# CIKARILANLAR (sizinti): units_received, stock_ratio, received_flag
+#   ve ayni-gun closing_stock turevleri. Bkz. build_product_features icindeki not.
 TARGET = "units_sold"
 
 
@@ -218,6 +233,43 @@ def train_model(df: pd.DataFrame) -> tuple[lgb.Booster, dict]:
 # --------------------------------------------------------------------------- #
 # Stok Tukenme Projeksiyonu
 # --------------------------------------------------------------------------- #
+def _feature_row(sold_hist: list[float], stock_hist: list[float], opening: float,
+                 day: pd.Timestamp, pid: int, cat_enc: int,
+                 unit_cost: float, reorder_pt: int) -> np.ndarray:
+    """
+    Gelecek bir gun icin FEATURE_COLS sirasina birebir uyan ozellik vektoru kurar.
+    Tum satis/stok ozellikleri GECMISTEN (o gunden onceki degerlerden) hesaplanir -
+    egitimdeki .shift(1) mantiginin aynisi.
+    """
+    s = pd.Series(sold_hist, dtype=float)
+    c = pd.Series(stock_hist, dtype=float)
+
+    def lag(series: pd.Series, k: int) -> float:
+        return float(series.iloc[-k]) if len(series) >= k else float(series.iloc[0])
+
+    vals: list[float] = []
+    vals += [lag(s, k) for k in (1, 3, 7, 14)]                       # sold_lag*
+    vals += [lag(c, k) for k in (1, 3, 7, 14)]                       # stock_lag*
+    vals += [float(s.tail(w).mean()) for w in (7, 14, 30)]           # sold_roll*_mean
+    vals += [float(s.tail(w).std(ddof=1)) if len(s) > 1 else 0.0
+             for w in (7, 14, 30)]                                   # sold_roll*_std
+    vals += [float(s.ewm(span=sp, adjust=False).mean().iloc[-1])
+             for sp in (7, 14, 30)]                                  # sold_ewma*
+    vals.append(float(c.tail(7).min()))                              # stock_roll7_min
+    vals.append(float(opening / (reorder_pt + 1)))                   # stock_vs_reorder
+    vals.append(float(c.iloc[-1] - c.iloc[-8]) if len(c) >= 8 else 0.0)   # stock_trend_7d
+    vals.append(float(s.iloc[-1] - s.iloc[-8]) if len(s) >= 8 else 0.0)   # demand_trend_7d
+    accel = ((s.iloc[-1] - s.iloc[-2]) - (s.iloc[-2] - s.iloc[-3])) if len(s) >= 3 else 0.0
+    vals.append(float(accel))                                        # demand_accel
+    dow = day.dayofweek
+    vals += [float(dow), float(day.day), float(day.month),
+             float(dow >= 5),
+             float(np.sin(2 * np.pi * dow / 7)), float(np.cos(2 * np.pi * dow / 7))]
+    vals.append(float(opening))                                      # opening_stock
+    vals += [float(pid), float(cat_enc), float(unit_cost), float(reorder_pt)]
+    return np.array(vals, dtype=float).reshape(1, -1)
+
+
 def forecast_depletion(
     model: lgb.Booster,
     inv_log: pd.DataFrame,
@@ -249,22 +301,39 @@ def forecast_depletion(
         unit_cost     = float(meta.get("unit_cost", 0.0))
         lead_time     = int(meta.get("lead_time_days", 7))
 
-        # EWMA tahmini (son 30 gun)
-        ewma_demand = float(
-            grp["units_sold"].tail(30).ewm(span=7, adjust=False).mean().iloc[-1]
-        )
-        ewma_demand = max(ewma_demand, 0.1)
+        # EWMA referansi (karsilastirma icin)
+        ewma_demand = max(float(
+            grp["units_sold"].tail(30).ewm(span=7, adjust=False).mean().iloc[-1]), 0.1)
 
-        # Model tahmini (son 7 gunluk ozelliklerle)
-        # Basit: ewma kullan (tam feature vektoru olusturmak kucuk gruplarda unstable)
-        model_demand = ewma_demand   # model egitiminden gelen egilimi yansıtir
+        # --- MODEL TABANLI OZYINELEMELI TAHMIN ---
+        # Onceki surumde `model_demand = ewma_demand` yaziliyordu; yani LightGBM
+        # egitiliyor ama tukenme hesabinda HIC KULLANILMIYORDU. Simdi model,
+        # ufuk boyunca gun gun talebi tahmin ediyor; her tahmin bir sonraki gunun
+        # lag/rolling ozelliklerine besleniyor ("yeniden siparis verilmezse" senaryosu).
+        sold_hist  = list(grp["units_sold"].astype(float))
+        stock_hist = list(grp["closing_stock"].astype(float))
+        stock      = float(current_stock)
+        cat_enc    = int(grp["category_enc"].iloc[-1]) if "category_enc" in grp else 0
+        daily_preds, days_to_zero = [], float(FORECAST_DAYS)
 
-        # Tukenme hesabi
+        for h in range(1, FORECAST_DAYS + 1):
+            day = last_date + pd.Timedelta(days=h)
+            row = _feature_row(sold_hist, stock_hist, stock, day,
+                               pid, cat_enc, unit_cost, reorder_pt)
+            pred = float(max(0.0, model.predict(row)[0]))
+            daily_preds.append(pred)
+            sold_hist.append(pred)
+            stock = max(0.0, stock - pred)
+            stock_hist.append(stock)
+            if stock <= 0 and days_to_zero == float(FORECAST_DAYS):
+                days_to_zero = float(h)
+
+        model_demand = max(float(np.mean(daily_preds)), 0.1)   # ufuk boyu ort. gunluk talep
+
         if current_stock <= 0:
             days_to_zero    = 0.0
             days_to_reorder = 0.0
         else:
-            days_to_zero    = current_stock / model_demand
             days_to_reorder = max(0.0, (current_stock - reorder_pt) / model_demand)
 
         depletion_date = (last_date + pd.Timedelta(days=int(days_to_zero))).date()
