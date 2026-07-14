@@ -15,9 +15,9 @@ python src/simulation/shock_simulation.py
 |---------|--------------:|-------|--:|
 | Baseline (kriz) | **-46.701 TL** | 🔴 KRİZ | — |
 | ABC'ye %2 erken ödeme indirimi | +129.699 TL | 🟢 GÜVENLİ | +176.400 |
-| Tedarikçi ödemesini 2 taksite böl (+10g) | +198.221 TL | 🟢 GÜVENLİ | +244.922 |
+| Tedarikçi ödemesini 2 taksite böl (+10g) | +185.221 TL | 🟢 GÜVENLİ | +231.922 |
 | **Kur +%10 şok (downside)** | **-313.901 TL** | 🔴 KRİZ↓ | -267.200 |
-| **KOMBİNE ÇÖZÜM (1+2)** | **+374.621 TL** | 🟢 GÜVENLİ | +421.322 |
+| **KOMBİNE ÇÖZÜM (1+2)** | **+361.621 TL** | 🟢 GÜVENLİ | +408.322 |
 
 Durum kademeleri: 🔴 KRİZ (kasa < 0) · 🟡 KURTARILDI (pozitif, 100K tampon altı) · 🟢 GÜVENLİ.
 

@@ -25,7 +25,12 @@ SAYIM; butun senaryolar -4.5M'e suruklenip krizi kaciriyordu.)
 
 ML KATKISI: Tahsilat TARIHLERI invoice_delay_model (LightGBM) tahminiyle belirlenir.
 Yani projeksiyonu suruklenen sey ML'dir; kalemler muhasebeden gelir. Bu ayrimi jüriye
-oldugu gibi anlatiyoruz.
+oldugu gibi anlatiyoruz. "ML krizi kesfetti" gibi bir iddiada BULUNMUYORUZ.
+
+BACKTEST SEFFAFLIGI: Gecikme modeli 18 ayin TAMAMIYLA egitilmistir (cutoff sonrasi
+odenen faturalar dahil). Dolayisiyla asagidaki "kriz tarihi sapmasi / MAE" degerleri
+bir miktar IYIMSERDIR. Kesin bir out-of-time degerlendirme icin modelin yalnizca
+cutoff oncesi odenmis faturalarla egitilmesi gerekir. Bunu gizlemiyoruz.
 
 v2'DE GIDERILEN HATALAR
 -----------------------
