@@ -1,47 +1,54 @@
 # Şok & Counterfactual Simülasyon Motoru
 
-Nakit projeksiyonunun (`forecast_cashflow`) üzerine **aksiyon senaryoları** uygular ve
-darboğazı çözer — rapordaki "Aksiyonları Uygula" motoru.
+Nakit projeksiyonunun üzerine **aksiyon senaryoları** uygular ve her aksiyonun
+**kriz olasılığını** ne kadar düşürdüğünü ölçer — rapordaki "Aksiyonları Uygula" motoru.
 
 ```bash
-python src/models/train_invoice_delay.py    # önce (gecikme modeli gerekir)
+python src/models/train_invoice_delay.py
 python src/models/forecast_cashflow.py
 python src/simulation/shock_simulation.py
 ```
 
-## Senaryolar (bugün = 31 Mayıs 2025, ufuk 30 gün)
+## Senaryolar (bugün = 31 Mayıs 2025, ufuk 30 gün, 2000 Monte Carlo yolu)
 
-| Senaryo | En düşük kasa | Durum | Δ |
-|---------|--------------:|-------|--:|
-| Baseline (kriz) | **-46.701 TL** | 🔴 KRİZ | — |
-| ABC'ye %2 erken ödeme indirimi | +129.699 TL | 🟢 GÜVENLİ | +176.400 |
-| Tedarikçi ödemesini 2 taksite böl (+10g) | +185.221 TL | 🟢 GÜVENLİ | +231.922 |
-| **Kur +%10 şok (downside)** | **-313.901 TL** | 🔴 KRİZ↓ | -267.200 |
-| **KOMBİNE ÇÖZÜM (1+2)** | **+361.621 TL** | 🟢 GÜVENLİ | +408.322 |
+| Senaryo | Beklenen kasa | **Kriz olasılığı** | Durum |
+|---------|--------------:|-------------------:|-------|
+| Baseline (aksiyon yok) | +7.717 TL | **%73** | RISKLI |
+| ABC erken odeme (%2 indirim) | +184.117 TL | **%0** | GUVENLI |
+| Tedarikci odemesini 2 taksite bol (+10g) | +289.730 TL | **%0** | GUVENLI |
+| Kur +%10 sok (downside) | -259.483 TL | **%100** | KRIZ |
+| KOMBINE COZUM (1+2) | +466.130 TL | **%0** | GUVENLI |
 
-Durum kademeleri: 🔴 KRİZ (kasa < 0) · 🟡 KURTARILDI (pozitif, 100K tampon altı) · 🟢 GÜVENLİ.
+**Kriz olasılığı = kasanın ufuk içinde eksiye düşme olasılığı** (Monte Carlo).
+
+## Neden olasılık, neden sadece nokta tahmini değil?
+
+Deterministik projeksiyon her faturayı **ortalama** tahmini tarihine koyar; bu, nakit
+eğrisini düzleştirir ve **çukuru sistematik olarak sığlaştırır.**
+
+Örnek: nokta tahmini **+7,717 TL** derken (kriz yok gibi),
+Monte Carlo **%73 ihtimalle eksiye düşülür** diyor.
+**Gerçekleşen: -59,780 TL** — olasılıksal tahmin doğru, nokta tahmini
+yanıltıcıydı. Gerçek değer P5–P95 aralığının (-81,822 … 37,079)
+içinde kalıyor.
+
+### Belirsizlik nereden geliyor? (heteroskedastik σ)
+Her fatura için gecikme, modelin kendi **out-of-fold artıklarından** çıkarılan dağılımdan
+örneklenir. Saçılım tahmin değerine göre değişir: erken ödeyende ~2.5 gün, çok geç
+ödeyende ~7.6 gün. **Tek bir sabit σ kullanmak riski küçümsüyordu**
+(%60 → %73).
+
+### Pazarlıklı ödemeler deterministiktir
+Erken ödeme indirimi bir **sözleşmedir**, tahmin değil. Bu yüzden o faturaya model
+gürültüsü eklenmez (`sigma_scale = 0`). Aksi halde "anlaştık ama yine de %20 ihtimalle
+geç öder" gibi anlamsız bir sonuç çıkıyor ve aksiyon sıralaması bozuluyordu.
 
 ## Kritik tasarım notu: ölçüm penceresi
 
-Erteleme süresi **tahmin penceresi içinde kalmalıdır.** Aksi halde ertelenen taksit
-pencerenin dışına düşer ve senaryo krizi *çözmüş gibi* görünür — oysa sadece ödemeyi
-görüş alanından çıkarmıştır (ölçüm artefaktı).
-
-Bu yüzden `SUPPLIER_DEFER_DAYS = 10`: büyük ödeme 17 Haziran'da, +10 gün → **27 Haziran**,
-pencere 30 Haziran'da bitiyor → **her iki taksit de sayılıyor**, iyileşme gerçek.
-(Tedarikçilerin sözleşmesel esneklik payı 3-15 gün olduğundan 10 gün gerçekçidir.)
-
-## Mekanik
-
-- **Hedefleme dayanıklı:** sabit tutar eşiği yerine **en büyük** alacak/ödeme hedeflenir.
-- **Erken ödeme:** en büyük riskli alacak (ABC, 180K) → tahmini gecikme yerine **vadesinde**
-  tahsil, tutar ×0.98.
-- **Tedarikçi bölme:** büyük ödeme → 2 eşit taksit, 2. taksit +10 gün; **toplam korunur**.
-- **Kur şoku:** ithal ham madde ödemesi ×1.10.
+Erteleme süresi **tahmin penceresi içinde kalmalıdır**, aksi halde ertelenen taksit
+pencerenin dışına düşer ve senaryo krizi *çözmüş gibi* görünür (ölçüm artefaktı).
+`SUPPLIER_DEFER_DAYS = 10`: 17 Haziran + 10 = **27 Haziran** < 30 Haziran ✓
+(tedarikçi sözleşmelerindeki esneklik payı 3–15 gün).
 
 ## Çıktılar
-`reports/shock_scenarios.json` · `reports/shock_projection_curves.csv`
-
-## Sonraki
-Sprint 2'de agent katmanı (CFO / Tahsilat / Tedarik / Risk Denetçisi) bu senaryoları
-`twin_api.simulate()` ve `twin_api.recommend()` üzerinden çağıracak.
+`reports/shock_scenarios.json` (kriz olasılıkları dahil) · `reports/shock_projection_curves.csv`
