@@ -20,16 +20,16 @@
 "Bugün" = 31 Mayıs 2025 (kriz henüz olmadı)
 
 1. Orkestratör -> situation_report()
-2. CFO         -> cash_forecast(): "18 Haziran'da kasa -46.701 TL, KRİZ"
+2. CFO         -> cash_forecast(): "eksiye düşme olasılığı %73, en olası tarih 2025-06-18"
                   (gerçekleşen: -59.780 TL @ 18 Haziran -> tarih sapması 0 gün)
-3. Tahsilat    -> invoice_risk(): ABC'nin 180.000 TL faturası ~23 gün gecikecek
+3. Tahsilat    -> invoice_risk(): ABC'nin 180.000 TL faturası gecikecek (en riskli)
 4. Tedarik     -> stock_risk(): kritik Ham Kumaş 30 Haziran'da tükeniyor (KRİTİK)
-5. Risk Den.   -> simulate("3_kur_soku"): kur %10 artarsa kriz -313.901 TL'ye derinleşir
+5. Risk Den.   -> simulate("3_kur_soku"): kur %10 artarsa kriz olasılığı %100
 6. Orkestratör -> recommend(): KOMBİNE ÇÖZÜM (erken ödeme + tedarikçi bölme)
-                  -> kasa +361.621 TL, kriz kapanır
+                  -> kriz olasılığı %73 -> %0, beklenen kasa +466.130 TL
 ```
 
-**Not:** İyimser senaryoda (tüm tahsilatlar vadesinde) kasa +229.067 TL, yani kriz yok.
+**Not:** İyimser senaryoda (tüm tahsilatlar vadesinde) kasa +299.204 TL. kriz yok.
 Kapsam: projeksiyon 30 günlük ufukta ve yalnızca **bilinen defter** (cutoff'a kadar kesilmiş
 faturalar) üzerinden yapılır; "şirket sonsuza dek güvenli" gibi bir iddia YOKTUR.
 Krizin sebebi **tahsilat gecikmesi** — bu, Tahsilat Agent'ın aksiyonunu doğrudan gerekçelendirir.
@@ -40,6 +40,7 @@ Krizin sebebi **tahsilat gecikmesi** — bu, Tahsilat Agent'ın aksiyonunu doğr
 |-------|----------------|
 | **Fatura gecikme (LightGBM)** | Nakit projeksiyonundaki **tahsilat tarihlerini** belirler → krizi o sürükler |
 | **Talep tahmini (LightGBM)** | Stok tükenme tarihini **özyinelemeli tahminle** üretir |
+| Monte Carlo | Modelin hata dağılımından örnekleyerek **kriz olasılığını** hesaplar |
 | Nakit projeksiyonu | Deterministik "bilinen defter" (direct method); **ML katkısı tahsilat zamanlaması** |
 
 Bu ayrımı dürüstçe anlatıyoruz: krizi bulan şey ML tahsilat zamanlaması + muhasebe defteri.

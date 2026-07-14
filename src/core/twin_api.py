@@ -32,7 +32,7 @@ sys.path.insert(0, str(ROOT / "src" / "simulation"))
 
 from forecast_cashflow import (  # noqa: E402
     CUTOFF, FORECAST_DAYS as HORIZON_DAYS, MIN_CASH_BUFFER,
-    known_book, load_daily_balance, project,
+    known_book, load_daily_balance, project, monte_carlo,
 )
 from train_invoice_delay import (  # noqa: E402
     FEATURE_COLS as FEATURES, build_features, load_data as load_invoices,
@@ -91,13 +91,18 @@ def invoice_risk(top_n: int = 10) -> list[dict]:
 
 
 def cash_forecast() -> dict:
-    """Nakit akisi ileri projeksiyonu + kriz uyarisi. CFO Agent icin."""
+    """Nakit akisi ileri projeksiyonu + OLASILIKSAL kriz degerlendirmesi. CFO Agent icin."""
     recv, pay, start, future = _projection_inputs()
-    proj = project(recv, pay, start, future, 1.0)
+    proj = project(recv, pay, start, future, (1.0, 1.0))
     trough = float(proj.min())
+    mc = monte_carlo(recv, pay, start, future)      # fatura-bazli heteroskedastik sigma
     return {
         "start_balance": round(start, 2),
         "trough": round(trough, 2), "trough_date": str(proj.idxmin().date()),
+        "kriz_olasiligi": mc["eksiye_dusme_olasiligi"],
+        "tampon_ihlali_olasiligi": mc["tampon_ihlali_olasiligi"],
+        "cukur_P5": mc["cukur_P5"], "cukur_P50": mc["cukur_P50"], "cukur_P95": mc["cukur_P95"],
+        "en_olasi_kriz_tarihi": mc["en_olasi_kriz_tarihi"],
         "crisis": trough < MIN_CASH_BUFFER, "goes_negative": trough < 0,
         "buffer": MIN_CASH_BUFFER,
         "curve": [{"date": str(d.date()), "balance": round(float(v), 2)}
@@ -135,11 +140,14 @@ def simulate(scenario: str) -> dict:
     recv, pay, start, future = _projection_inputs()
     label, fn = shock.SCENARIOS[scenario]
     r, p = fn(recv.copy(), pay.copy())
-    proj = project(r, p, start, future, 1.0)
+    proj = project(r, p, start, future, (1.0, 1.0))
     trough = float(proj.min())
-    status = "KRIZ" if trough < 0 else ("KURTARILDI" if trough < MIN_CASH_BUFFER else "GUVENLI")
+    mc = monte_carlo(r, p, start, future)
+    status = "KRIZ" if trough < 0 else ("RISKLI" if trough < MIN_CASH_BUFFER else "GUVENLI")
     return {"scenario": scenario, "label": label, "trough": round(trough, 2),
-            "trough_date": str(proj.idxmin().date()), "status": status}
+            "trough_date": str(proj.idxmin().date()), "status": status,
+            "kriz_olasiligi": mc["eksiye_dusme_olasiligi"],
+            "cukur_P5": mc["cukur_P5"], "cukur_P50": mc["cukur_P50"]}
 
 
 def recommend() -> dict:
@@ -148,10 +156,12 @@ def recommend() -> dict:
     base = next(r for r in results if r["scenario"] == "0_baseline")
     actions = [r for r in results if r["scenario"] != "0_baseline"
                and "sok" not in r["scenario"] and "kur" not in r["scenario"]]
-    improving = sorted([a for a in actions if a["trough"] > base["trough"]],
-                       key=lambda x: -x["trough"])
+    # Aksiyonlar KRIZ OLASILIGINA gore siralanir (nokta tahmini degil - olasilik karar verir)
+    improving = sorted([a for a in actions if a["kriz_olasiligi"] < base["kriz_olasiligi"]],
+                       key=lambda x: (x["kriz_olasiligi"], -x["trough"]))
     return {
         "baseline_trough": base["trough"], "baseline_status": base["status"],
+        "baseline_kriz_olasiligi": base["kriz_olasiligi"],
         "onerilen_aksiyonlar": improving,
         "en_iyi": improving[0] if improving else None,
     }
@@ -189,6 +199,7 @@ if __name__ == "__main__":
               f"| {r['days_to_zero']:.0f} gun | risk: {r['risk_level']}")
     print("\nAKSIYON ONERISI:")
     rec = recommend()
-    print(f"  Baseline: {rec['baseline_trough']:,.0f} TL ({rec['baseline_status']})")
+    print(f"  Aksiyon yok: kriz olasiligi %{rec['baseline_kriz_olasiligi']*100:.0f}")
     for a in rec["onerilen_aksiyonlar"]:
-        print(f"  -> {a['label']}: {a['trough']:,.0f} TL ({a['status']})")
+        print(f"  -> {a['label']}: kriz olasiligi %{a['kriz_olasiligi']*100:.0f} "
+              f"({a['trough']:,.0f} TL)")
