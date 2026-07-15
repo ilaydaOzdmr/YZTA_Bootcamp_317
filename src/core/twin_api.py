@@ -138,7 +138,7 @@ def simulate(scenario: str) -> dict:
     if scenario not in shock.SCENARIOS:
         return {"error": f"gecersiz senaryo. Secenekler: {list(shock.SCENARIOS)}"}
     recv, pay, start, future = _projection_inputs()
-    label, fn = shock.SCENARIOS[scenario]
+    label, fn, _is_action = shock.SCENARIOS[scenario]
     r, p = fn(recv.copy(), pay.copy())
     proj = project(r, p, start, future, (1.0, 1.0))
     trough = float(proj.min())
@@ -154,8 +154,9 @@ def recommend() -> dict:
     """Tum senaryolari calistirip krizi cozen aksiyonlari sirala. Orkestrator icin."""
     results = [simulate(k) for k in shock.SCENARIOS]
     base = next(r for r in results if r["scenario"] == "0_baseline")
-    actions = [r for r in results if r["scenario"] != "0_baseline"
-               and "sok" not in r["scenario"] and "kur" not in r["scenario"]]
+    # SADECE aksiyonlar onerilir (soklar degil) - is_action bayragiyla (string filtresi degil).
+    actions = [r for r in results
+               if r["scenario"] != "0_baseline" and shock.SCENARIOS[r["scenario"]][2]]
     # Aksiyonlar KRIZ OLASILIGINA gore siralanir (nokta tahmini degil - olasilik karar verir)
     improving = sorted([a for a in actions if a["kriz_olasiligi"] < base["kriz_olasiligi"]],
                        key=lambda x: (x["kriz_olasiligi"], -x["trough"]))

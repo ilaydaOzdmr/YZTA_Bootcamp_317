@@ -36,11 +36,21 @@ def stats(x: pd.Series) -> dict:
     }
 
 
+def _require(path: Path, ad: str) -> bool:
+    if not path.exists():
+        print(f"  [ATLANDI] {ad} bulunamadi: {path}")
+        print("  Gercek veri karsilastirmasi icin once: python src/data_ingest/fetch_kaggle.py")
+        return False
+    return True
+
+
 def main() -> None:
     (ROOT / "reports").mkdir(exist_ok=True)
     out = {}
 
     # --- Gercek 1: IBM Finance Factoring (DaysLate dogrudan) ---
+    if not (_require(IBM, 'IBM Finance Factoring') and _require(HR, 'HighRadius')):
+        return
     ibm = pd.read_csv(IBM)
     out["ibm_real"] = stats(ibm["DaysLate"])
 

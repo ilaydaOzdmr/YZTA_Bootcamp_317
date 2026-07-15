@@ -1,0 +1,9 @@
+# LightGBM model dosyalari: git EOL donusumu YAPMASIN.
+# Aksi halde Windows checkout'ta CRLF'e cevirir ve LightGBM "Model format error"
+# ile yuklenemez (taze klonda twin_api coker).
+models/*.txt binary
+*.db binary
+
+# Metin dosyalari icin tutarli LF
+*.py text eol=lf
+*.md text eol=lf

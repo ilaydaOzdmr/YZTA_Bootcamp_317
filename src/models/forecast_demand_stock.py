@@ -285,6 +285,9 @@ def forecast_depletion(
     """
     last_date = inv_log["date"].max()
 
+    # Kategori kodu haritasi (egitimdeki build_product_features ile AYNI: sorted(cats))
+    cat_map = {c: i for i, c in enumerate(sorted(products["category"].unique()))}
+
     # Tedarikci lead_time haritasi
     sup_prod = products.merge(
         suppliers[["supplier_id", "lead_time_days"]], on="supplier_id", how="left"
@@ -313,7 +316,9 @@ def forecast_depletion(
         sold_hist  = list(grp["units_sold"].astype(float))
         stock_hist = list(grp["closing_stock"].astype(float))
         stock      = float(current_stock)
-        cat_enc    = int(grp["category_enc"].iloc[-1]) if "category_enc" in grp else 0
+        # kategori kodu products'tan (inv_log'da yok; egitimdeki cat_map ile AYNI siralama)
+        _cat = meta.get("category", "") if isinstance(meta, dict) else meta["category"]
+        cat_enc    = cat_map.get(_cat, 0)
         daily_preds, days_to_zero = [], float(FORECAST_DAYS)
 
         for h in range(1, FORECAST_DAYS + 1):
