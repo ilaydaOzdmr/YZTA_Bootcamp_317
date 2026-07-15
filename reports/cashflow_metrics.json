@@ -31,11 +31,11 @@
   "monte_carlo": {
     "n_sims": 2000,
     "sigma_ort": 3.98,
-    "eksiye_dusme_olasiligi": 0.732,
-    "tampon_ihlali_olasiligi": 0.995,
-    "cukur_P5": -81822.13,
-    "cukur_P50": -21223.25,
-    "cukur_P95": 37079.19,
+    "eksiye_dusme_olasiligi": 0.555,
+    "tampon_ihlali_olasiligi": 0.828,
+    "cukur_P5": -249277.66,
+    "cukur_P50": -15720.55,
+    "cukur_P95": 183112.28,
     "en_olasi_kriz_tarihi": "2025-06-18"
   },
   "backtest": {

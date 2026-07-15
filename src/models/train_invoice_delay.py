@@ -295,10 +295,16 @@ def train(df: pd.DataFrame) -> tuple[lgb.Booster, dict]:
 
     # Final model: tum veriyle, ortalama best_iter kadar
     best_n = max(int(np.mean(best_iters)), 10)
-    final_model = lgb.train(
-        params, lgb.Dataset(X, label=y, feature_name=FEATURE_COLS),
-        num_boost_round=best_n, callbacks=[lgb.log_evaluation(0)],
-    )
+    dfull = lgb.Dataset(X, label=y, feature_name=FEATURE_COLS)
+    final_model = lgb.train(params, dfull, num_boost_round=best_n,
+                            callbacks=[lgb.log_evaluation(0)])
+    # Kuantil regresyon: per-fatura tahmin araligi (P10-P90). MC'ye dokunmaz;
+    # yalnizca acik fatura raporunu zenginlestirir (Tahsilat ajani icin yorumlanabilir aralik).
+    qp = {k: v for k, v in params.items() if k not in ("objective", "metric")}
+    q_lo = lgb.train({**qp, "objective": "quantile", "alpha": 0.1},
+                     dfull, num_boost_round=best_n, callbacks=[lgb.log_evaluation(0)])
+    q_hi = lgb.train({**qp, "objective": "quantile", "alpha": 0.9},
+                     dfull, num_boost_round=best_n, callbacks=[lgb.log_evaluation(0)])
 
     # --- HETEROSKEDASTIK SIGMA PROFILI ---
     # Hata buyuklugu tahmin degerine gore degisiyor (gec odeyenlerde sacilim daha genis).
@@ -349,18 +355,24 @@ def train(df: pd.DataFrame) -> tuple[lgb.Booster, dict]:
                 final_model.feature_importance(importance_type="gain").tolist())
         ),
     }
-    return final_model, metrics
+    return final_model, metrics, q_lo, q_hi
 
 
 # --------------------------------------------------------------------------- #
 # Acik Fatura Risk Raporlama
 # --------------------------------------------------------------------------- #
-def predict_open_invoices(model: lgb.Booster, df: pd.DataFrame) -> pd.DataFrame:
+def predict_open_invoices(model: lgb.Booster, df: pd.DataFrame,
+                          q_lo: lgb.Booster = None, q_hi: lgb.Booster = None) -> pd.DataFrame:
     open_df = df[df["status"] == "open"].copy()
     if open_df.empty:
         return pd.DataFrame()
 
     open_df["predicted_days_late"] = model.predict(open_df[FEATURE_COLS]).round(1)
+    if q_lo is not None and q_hi is not None:
+        lo = q_lo.predict(open_df[FEATURE_COLS])
+        hi = q_hi.predict(open_df[FEATURE_COLS])
+        open_df["gecikme_p10"] = np.minimum(lo, hi).round(1)   # %80 tahmin araligi alt
+        open_df["gecikme_p90"] = np.maximum(lo, hi).round(1)   # ust
     open_df["estimated_settlement"] = (
         open_df["due_date"] + pd.to_timedelta(open_df["predicted_days_late"], unit="D")
     )
@@ -383,11 +395,11 @@ def predict_open_invoices(model: lgb.Booster, df: pd.DataFrame) -> pd.DataFrame:
 
     open_df["risk_label"] = open_df["risk_score"].apply(risk_label)
 
-    return open_df[[
-        "invoice_id", "customer_id", "segment", "due_date", "amount",
-        "disputed", "predicted_days_late", "estimated_settlement",
-        "risk_score", "risk_label",
-    ]].sort_values("risk_score", ascending=False).reset_index(drop=True)
+    cols = ["invoice_id", "customer_id", "segment", "due_date", "amount",
+            "disputed", "predicted_days_late", "gecikme_p10", "gecikme_p90",
+            "estimated_settlement", "risk_score", "risk_label"]
+    cols = [c for c in cols if c in open_df.columns]
+    return open_df[cols].sort_values("risk_score", ascending=False).reset_index(drop=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -417,7 +429,7 @@ def main() -> None:
     print(f"  Egitim (settled): {settled_n:,}  |  Tahmin (acik): {open_n:,}")
 
     print(f"[3/4] TimeSeriesSplit({N_FOLDS}) ile LightGBM egitiliyor (zaman bazli)...")
-    model, metrics = train(df)
+    model, metrics, q_lo, q_hi = train(df)
 
     # Teorik taban: modelin performansini baglamlandirir (ve sizinti kontrolu saglar)
     oracle = compute_oracle(invoices, customers)
@@ -426,7 +438,7 @@ def main() -> None:
     metrics["oracle_verimlilik_pct"] = round(100 * oracle["rmse"] / metrics["cv_rmse_mean"], 1)
 
     print("[4/4] Acik fatura risk raporu uretiliyor...")
-    preds = predict_open_invoices(model, df)
+    preds = predict_open_invoices(model, df, q_lo, q_hi)
 
     model.save_model(str(MODEL_PATH))
     METRICS_PATH.write_text(json.dumps(metrics, indent=2, ensure_ascii=False),

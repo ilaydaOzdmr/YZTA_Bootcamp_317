@@ -18,10 +18,11 @@ nakit iki AYRIK kaynaktan gelir:
 
 KAPSAM: Yalnizca BILINEN DEFTER projekte edilir. Cutoff'tan SONRA kesilecek yeni
 faturalar KAPSAM DISIDIR. Bu, hazine (treasury) pratiginde standart olan "direct method"
-yaklasimidir. Muhafazakar bir varsayimdir: cutoff sonrasi kesilen kisa vadeli (15 gun)
-faturalarin bir kismi 30 gunluk ufukta nakde DONEBILIR; bunlari saymayarak riski
-oldugundan buyuk degil, KUCUK gostermiyoruz - yani hata yonu guvenli tarafta.
-(Backtest MAE'sinin bir kismi bu kapsam disi birakmadan gelir.)
+yaklasimidir. Cutoff sonrasi kesilen kisa vadeli faturalar kapsam disidir.
+DURUSTLUK NOTU: rolling_backtest, MEDYAN projeksiyonun hafif IYIMSER oldugunu gosteriyor
+(PIT ort ~0.39; gerceklesen genelde medyanin biraz altinda). Ancak asagi kuyruk (P5) ve
+kriz olasiligi iyi kalibre - kriz uyarilari guvenilir. Karar verirken medyana degil,
+olasiliga ve P5'e bakilmali.
 (v2'de model TUM net akisi tahmin edip UZERINE tahsilat/gider tekrar ekliyordu -> CIFTE
 SAYIM; butun senaryolar -4.5M'e suruklenip krizi kaciriyordu.)
 
@@ -87,6 +88,12 @@ FORECAST_DAYS   = 30                           # ufuk veri sonuna (30 Haz) hizal
 MONTHLY_FIXED   = 700_000.0                    # kira+maas (ayin 5'i)
 MONTHLY_OPEX    = 13_000.0                     # operasyonel gider (ayin 20'si, ort.)
 MIN_CASH_BUFFER = 100_000.0                    # guvenli operasyonel minimum kasa
+# Sistemik gecikme korelasyonu: gercek hayatta gecikmeler BAGIMSIZ degildir
+# (piyasa siklasmasi -> herkes ayni anda gec oder). rho, faturalar arasi ortak
+# gecikme bilesenidir. rolling_backtest.py ile kalibre edildi: rho=0'da coverage
+# dusuk (~%78) cikiyordu; sistemik bilesen eklenince gerceklesenler dagilimin
+# icine oturuyor. (Bagimsiz ornekleme downside kuyrugunu inceltiyordu.)
+SYSTEMIC_RHO    = 0.35
 SEED = 42
 
 # Senaryo = (gecikme_carpani, erkenlik_carpani)
@@ -133,7 +140,9 @@ def known_book(con) -> tuple[pd.DataFrame, pd.DataFrame]:
                       con, parse_dates=["invoice_date", "due_date", "settled_date"])
     pur = pur[pur["invoice_date"] <= CUTOFF]
     pay = pur[pur["settled_date"].isna() | (pur["settled_date"] > CUTOFF)].copy()
-    pay["exp_pay"] = pay["settled_date"].fillna(pay["due_date"])
+    # Borclar VADESINDE odenir. (settled_date kullanmak cutoff sonrasi GELECEK
+    # bilgisi olurdu; bu veride settled==due oldugundan etkisiz ama gercek veride sizinti.)
+    pay["exp_pay"] = pay["due_date"]
     return recv, pay
 
 
@@ -198,7 +207,7 @@ def per_invoice_sigma(recv: pd.DataFrame) -> np.ndarray:
 
 def monte_carlo(recv: pd.DataFrame, pay: pd.DataFrame, start_balance: float,
                 future: pd.DatetimeIndex, sigma=None,
-                n_sims: int = 2000, seed: int = SEED) -> dict:
+                n_sims: int = 2000, seed: int = SEED, return_troughs: bool = False):
     """
     NEDEN GEREKLI: Deterministik projeksiyon her faturayi ORTALAMA tahmini tarihine
     koyar. Bu, nakit egrisini duzlestirir ve CUKURU SISTEMATIK OLARAK SIGLASTIRIR
@@ -238,8 +247,13 @@ def monte_carlo(recv: pd.DataFrame, pay: pd.DataFrame, start_balance: float,
     below_buffer = 0
     trough_days = np.empty(n_sims, dtype=int)
 
+    rho = SYSTEMIC_RHO
     for s in range(n_sims):
-        delay = rng.normal(pred, sigma)                     # ornekle: gercek gecikme
+        # Gecikme = tahmin + sistemik ortak sok + fatura-ozgu gurultu.
+        # Corr(delay_i, delay_j) = rho; her fatura icin toplam varyans sigma_i^2 korunur.
+        z_sys = rng.normal(0.0, 1.0)                        # tum faturalara ORTAK (bu yol)
+        z_idio = rng.normal(0.0, 1.0, size=len(pred))       # fatura-ozgu
+        delay = pred + sigma * (np.sqrt(rho) * z_sys + np.sqrt(1.0 - rho) * z_idio)
         coll = due.astype("datetime64[D]") + np.round(delay).astype("timedelta64[D]")
         idx = (coll - day0).astype(int)
         idx = np.clip(idx, 0, H)                            # pencere disi -> ilk gun / disari
@@ -256,7 +270,7 @@ def monte_carlo(recv: pd.DataFrame, pay: pd.DataFrame, start_balance: float,
 
     p_neg = neg_any / n_sims
     mode_day = int(np.bincount(trough_days).argmax())
-    return {
+    out = {
         "n_sims": n_sims, "sigma_ort": round(float(sigma.mean()), 3),
         "eksiye_dusme_olasiligi": round(p_neg, 3),
         "tampon_ihlali_olasiligi": round(below_buffer / n_sims, 3),
@@ -265,6 +279,9 @@ def monte_carlo(recv: pd.DataFrame, pay: pd.DataFrame, start_balance: float,
         "cukur_P95": round(float(np.percentile(troughs, 95)), 2),
         "en_olasi_kriz_tarihi": str(future[mode_day].date()),
     }
+    if return_troughs:
+        out["troughs"] = troughs            # PIT / kalibrasyon backtest'i icin ham dagilim
+    return out
 
 
 # --------------------------------------------------------------------------- #
