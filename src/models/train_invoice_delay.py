@@ -69,6 +69,25 @@ PRED_PATH    = REPORT_DIR / "invoice_delay_predictions.csv"
 SEED    = 42
 N_FOLDS = 5
 
+# LightGBM hiperparametreleri - modul seviyesinde tutulur ki dis dogrulama
+# scripti (validate_real_transfer.py) BIREBIR AYNI parametreleri import edebilsin;
+# "ayni pipeline" iddiasi ancak ayni PARAMS + ayni feature'lar kullanilinca dogru olur.
+PARAMS = {
+    "objective":         "regression",
+    "metric":            ["rmse", "mae"],
+    "learning_rate":     0.02,
+    "num_leaves":        15,
+    "max_depth":         -1,
+    "min_child_samples": 60,
+    "feature_fraction":  0.7,
+    "bagging_fraction":  0.85,
+    "bagging_freq":      5,
+    "lambda_l1":         0.05,
+    "lambda_l2":         5.0,
+    "verbose":          -1,
+    "seed":              SEED,
+}
+
 
 # --------------------------------------------------------------------------- #
 # Veri Yukleme
@@ -255,21 +274,7 @@ def train(df: pd.DataFrame) -> tuple[lgb.Booster, dict]:
     X = train_df[FEATURE_COLS].values
     y = train_df[TARGET].values
 
-    params = {
-        "objective":         "regression",
-        "metric":            ["rmse", "mae"],
-        "learning_rate":     0.02,
-        "num_leaves":        15,
-        "max_depth":         -1,
-        "min_child_samples": 60,
-        "feature_fraction":  0.7,
-        "bagging_fraction":  0.85,
-        "bagging_freq":      5,
-        "lambda_l1":         0.05,
-        "lambda_l2":         5.0,
-        "verbose":          -1,
-        "seed":              SEED,
-    }
+    params = PARAMS
 
     tscv = TimeSeriesSplit(n_splits=N_FOLDS)
     rmse_list, mae_list, acc_list, best_iters = [], [], [], []

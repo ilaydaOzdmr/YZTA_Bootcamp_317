@@ -1,0 +1,32 @@
+{
+  "veri_seti": "IBM Late Payment Histories (Kaggle faktoring)",
+  "amac": "Sentetik-egitilmis modelin gercek veriye genellemesini KANITLAMAK - gercek veriyi egitime karistirmadan (kalibrasyon kanitlari korunur).",
+  "kol1_transfer": {
+    "rmse": 11.067,
+    "mae": 9.0053,
+    "sign_accuracy": 0.7105,
+    "baseline_rmse": 12.3324,
+    "improvement_over_baseline_pct": 10.26,
+    "n": 2466,
+    "aciklama": "Sentetik-egitilmis model, hic gormedigi gercek faturalarda. Mutlak RMSE'nin sentetik 4.30'dan yuksek olmasi BASARISIZLIK DEGIL (gercek gurultu tabani daha yuksek); baseline'a gore iyilesme ve isaret dogrulugu asil olctudur."
+  },
+  "kol2_metodoloji": {
+    "validation": "TimeSeriesSplit(5) - gercek veride sifirdan",
+    "n": 2466,
+    "cv_rmse_mean": 6.6081,
+    "cv_rmse_std": 0.7659,
+    "cv_mae_mean": 5.2561,
+    "cv_sign_accuracy": 0.8516,
+    "baseline_rmse": 12.3324,
+    "improvement_over_baseline_pct": 46.42,
+    "aciklama": "Ayni sizintisiz metodoloji (as-of feature + zaman-bazli CV + klip yok) gercek veride de calisiyor mu? Baseline'i belirgin gecmesi metodolojinin veriye ozgu olmadigini gosterir."
+  },
+  "durustluk_notlari": [
+    "RMSE'ler domainler arasi DOGRUDAN kiyaslanamaz; gercek gurultu tabani daha yuksek (std ~12.3 vs sentetik ~7.3), tutar olcegi ~150x farkli.",
+    "Asil olcut: baseline'a gore % iyilesme ve gec/erken isaret dogrulugu (ikisi de olcekten bagimsiz).",
+    "Kovaryat kaymasi var: model tutar-bazli feature'larda ekstrapolasyon yapar.",
+    "Tek dis veri seti, tek sektor (faktoring), 2012-13; iddia 'bir bagimsiz gercek veri setine transfer' ile sinirlidir.",
+    "days_late ham tarihlerden turetildi (klip yok); erken odemeler korundu.",
+    "Oracle/teorik taban gercek veri icin tanimsizdir."
+  ]
+}
