@@ -34,6 +34,7 @@ from forecast_cashflow import (  # noqa: E402
     CUTOFF, FORECAST_DAYS as HORIZON_DAYS, MIN_CASH_BUFFER,
     known_book, load_daily_balance, project, monte_carlo,
 )
+from forecast_demand_stock import reorder_cash_needs  # noqa: E402
 from train_invoice_delay import (  # noqa: E402
     FEATURE_COLS as FEATURES, build_features, load_data as load_invoices,
 )
@@ -96,6 +97,21 @@ def cash_forecast() -> dict:
     proj = project(recv, pay, start, future, (1.0, 1.0))
     trough = float(proj.min())
     mc = monte_carlo(recv, pay, start, future)      # fatura-bazli heteroskedastik sigma
+
+    # STOK -> NAKIT KOPRUSU: Tedarik tarafinin (reorder-alti kritik urunler) urettigi
+    # plansiz acil siparis nakit ihtiyaci, CFO'nun nakit gorunumune eklenir. Ana kriz
+    # olasiligi (kalibre edilen alacak/borc ayagi) korunur; stok ayagi ek/ayrik gosterilir.
+    stock_out = reorder_cash_needs(pd.Timestamp(CUTOFF), HORIZON_DAYS)
+    stok_koprusu = None
+    if len(stock_out):
+        mc_s = monte_carlo(recv, pay, start, future, stock_outflows=stock_out)
+        stok_koprusu = {
+            "acil_stok_ihtiyaci": round(float(stock_out.sum()), 2),
+            "tarih_sayisi": int(len(stock_out)),
+            "kriz_olasiligi_3ayak": mc_s["eksiye_dusme_olasiligi"],
+            "cukur_P5_3ayak": mc_s["cukur_P5"], "cukur_P50_3ayak": mc_s["cukur_P50"],
+        }
+
     return {
         "start_balance": round(start, 2),
         "trough": round(trough, 2), "trough_date": str(proj.idxmin().date()),
@@ -105,6 +121,7 @@ def cash_forecast() -> dict:
         "en_olasi_kriz_tarihi": mc["en_olasi_kriz_tarihi"],
         "crisis": trough < MIN_CASH_BUFFER, "goes_negative": trough < 0,
         "buffer": MIN_CASH_BUFFER,
+        "stok_koprusu": stok_koprusu,
         "curve": [{"date": str(d.date()), "balance": round(float(v), 2)}
                   for d, v in proj.items()],
     }
@@ -190,6 +207,11 @@ if __name__ == "__main__":
     cf = cash_forecast()
     print(f"\nNAKIT: en dusuk {cf['trough']:,.0f} TL @ {cf['trough_date']} "
           f"-> {'KRIZ UYARISI' if cf['crisis'] else 'guvenli'}")
+    print(f"  kriz olasiligi (alacak/borc): %{cf['kriz_olasiligi']*100:.0f}")
+    if cf["stok_koprusu"]:
+        sk = cf["stok_koprusu"]
+        print(f"  + stok koprusu: acil siparis {sk['acil_stok_ihtiyaci']:,.0f} TL "
+              f"-> 3-ayak kriz olasiligi %{sk['kriz_olasiligi_3ayak']*100:.0f}")
     print("\nEN RISKLI 3 FATURA:")
     for r in invoice_risk(3):
         print(f"  #{r['invoice_id']} musteri {r['customer_id']} | {r['amount']:,.0f} TL "

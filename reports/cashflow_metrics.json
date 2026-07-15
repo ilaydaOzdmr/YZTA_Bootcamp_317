@@ -38,6 +38,17 @@
     "cukur_P95": 183112.28,
     "en_olasi_kriz_tarihi": "2025-06-18"
   },
+  "stok_nakit_ihtiyaci_tl": 20007.77,
+  "monte_carlo_stok_dahil": {
+    "n_sims": 2000,
+    "sigma_ort": 3.98,
+    "eksiye_dusme_olasiligi": 0.555,
+    "tampon_ihlali_olasiligi": 0.828,
+    "cukur_P5": -249277.66,
+    "cukur_P50": -15720.55,
+    "cukur_P95": 183112.28,
+    "en_olasi_kriz_tarihi": "2025-06-18"
+  },
   "backtest": {
     "gerceklesen_min": -59780.4,
     "gerceklesen_tarih": "2025-06-18",

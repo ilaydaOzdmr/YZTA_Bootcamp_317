@@ -73,6 +73,7 @@ from train_invoice_delay import (  # noqa: E402
     build_features as build_invoice_features,
     load_data as load_invoice_data,
 )
+from forecast_demand_stock import reorder_cash_needs  # noqa: E402  (stok -> nakit koprusu)
 
 DB_PATH    = ROOT / "data" / "digital_twin.db"
 MODEL_DIR  = ROOT / "models"
@@ -151,7 +152,8 @@ def known_book(con) -> tuple[pd.DataFrame, pd.DataFrame]:
 # --------------------------------------------------------------------------- #
 def project(recv: pd.DataFrame, pay: pd.DataFrame, start_balance: float,
             future: pd.DatetimeIndex,
-            factors: tuple[float, float] = (1.0, 1.0)) -> pd.Series:
+            factors: tuple[float, float] = (1.0, 1.0),
+            stock_outflows: pd.Series | None = None) -> pd.Series:
     first = future[0]
     late_f, early_f = factors
 
@@ -175,6 +177,9 @@ def project(recv: pd.DataFrame, pay: pd.DataFrame, start_balance: float,
          for d in future], index=future)
 
     net = inflow - outflow - fixed
+    # STOK -> NAKIT: acil siparis nakit cikislari (crunch'in 3. ayagi; opsiyonel)
+    if stock_outflows is not None and len(stock_outflows):
+        net = net - stock_outflows.reindex(future, fill_value=0.0)
     return start_balance + net.cumsum()
 
 
@@ -207,7 +212,8 @@ def per_invoice_sigma(recv: pd.DataFrame) -> np.ndarray:
 
 def monte_carlo(recv: pd.DataFrame, pay: pd.DataFrame, start_balance: float,
                 future: pd.DatetimeIndex, sigma=None,
-                n_sims: int = 2000, seed: int = SEED, return_troughs: bool = False):
+                n_sims: int = 2000, seed: int = SEED, return_troughs: bool = False,
+                stock_outflows: pd.Series | None = None):
     """
     NEDEN GEREKLI: Deterministik projeksiyon her faturayi ORTALAMA tahmini tarihine
     koyar. Bu, nakit egrisini duzlestirir ve CUKURU SISTEMATIK OLARAK SIGLASTIRIR
@@ -238,7 +244,9 @@ def monte_carlo(recv: pd.DataFrame, pay: pd.DataFrame, start_balance: float,
     outflow = pay.groupby(exp_pay)["amount"].sum().reindex(future, fill_value=0.0).to_numpy()
     fixed = np.array([MONTHLY_FIXED if d.day == 5 else (MONTHLY_OPEX if d.day == 20 else 0.0)
                       for d in future])
-    base_net = -(outflow + fixed)
+    stock_out = (stock_outflows.reindex(future, fill_value=0.0).to_numpy()
+                 if stock_outflows is not None and len(stock_outflows) else 0.0)
+    base_net = -(outflow + fixed + stock_out)   # + stok acil siparis cikislari (opsiyonel)
     H = len(future)
     day0 = np.datetime64(first, "D")
 
@@ -322,8 +330,11 @@ def main() -> None:
             "eksiye_duser": bool(trough < 0),
         }
 
-    # --- Monte Carlo: olasiliksal kriz degerlendirmesi ---
-    mc = monte_carlo(recv, pay, start_balance, future)   # fatura-bazli heteroskedastik sigma
+    # --- Monte Carlo: olasiliksal kriz degerlendirmesi (fatura-bazli heteroskedastik sigma) ---
+    mc = monte_carlo(recv, pay, start_balance, future)                       # yalnizca alacak/borc
+    stock_out = reorder_cash_needs(CUTOFF, FORECAST_DAYS)                    # STOK -> NAKIT koprusu
+    mc_stock = monte_carlo(recv, pay, start_balance, future,
+                           stock_outflows=stock_out)                        # 3 ayak dahil
 
     print("[3/3] Kaydediliyor...")
     curves.to_csv(FORECAST_PATH, index=False)
@@ -356,6 +367,14 @@ def main() -> None:
     print(f"    Cukur dagilimi P5/P50/P95      : {mc['cukur_P5']:,.0f} / "
           f"{mc['cukur_P50']:,.0f} / {mc['cukur_P95']:,.0f} TL")
     print(f"    En olasi kriz tarihi           : {mc['en_olasi_kriz_tarihi']}")
+    print("-" * 68)
+    print(f"  STOK -> NAKIT KOPRUSU (crunch'in 3. ayagi):")
+    print(f"    Ufuk icinde acil stok siparisi ihtiyaci: {stock_out.sum():>12,.0f} TL "
+          f"({len(stock_out)} tarih)")
+    print(f"    3 AYAK DAHIL kriz olasiligi : %{mc_stock['eksiye_dusme_olasiligi']*100:.0f}  "
+          f"(alacak/borc tek basina: %{mc['eksiye_dusme_olasiligi']*100:.0f})")
+    print(f"    3 ayak dahil cukur P5/P50   : {mc_stock['cukur_P5']:,.0f} / "
+          f"{mc_stock['cukur_P50']:,.0f} TL")
 
     metrics = {
         "cutoff": str(CUTOFF.date()), "horizon_days": FORECAST_DAYS,
@@ -365,6 +384,8 @@ def main() -> None:
         "acik_borc_tl":   round(float(pay["amount"].sum()), 2),
         "senaryolar": results,
         "monte_carlo": mc,
+        "stok_nakit_ihtiyaci_tl": round(float(stock_out.sum()), 2),
+        "monte_carlo_stok_dahil": {k: v for k, v in mc_stock.items() if k != "troughs"},
         "backtest": {"gerceklesen_min": round(a_min, 2), "gerceklesen_tarih": a_date,
                      "mae": round(mae, 2), "kriz_tarihi_sapmasi_gun": date_err},
     }

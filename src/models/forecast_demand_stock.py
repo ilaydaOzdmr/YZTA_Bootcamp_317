@@ -59,6 +59,56 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     return inv_log, products, suppliers
 
 
+def reorder_cash_needs(cutoff: pd.Timestamp, horizon: int = 30) -> pd.Series:
+    """
+    STOK -> NAKIT KOPRUSU.  Bir "bugun" (cutoff) itibariyle, onumuzdeki `horizon` gun
+    icinde tukenecek urunler icin gereken ACIL SIPARIS nakit cikislarini doner.
+
+    Rapordaki "3 olay ayni hafta" senaryosunun 3. ayagi (kritik stok tukenmesi) boylece
+    nakit projeksiyonuna baglanir: uretimi surdurmek icin siparis verilmesi gerekir ve
+    bu bir nakit cikisidir. (Tedarik Ajani -> CFO Ajani etkilesiminin sayisal karsiligi.)
+
+    Yaklasim (cutoff vantajindan, son 14 gun talep hizi ile - forecast_demand_stock ile
+    tutarli days-of-cover mantigi):
+      - order_by = cutoff + (stok - reorder_point)/gunluk_talep - lead_time
+      - order_by pencere icindeyse: maliyet = ~30 gunluk talep * birim_maliyet
+    Doner: index=tarih, value=TL (ayni gune denk gelenler toplanir).
+    """
+    inv_log, products, suppliers = load_data()
+    lead = suppliers.set_index("supplier_id")["lead_time_days"].to_dict()
+    at_cut = (inv_log[inv_log["date"] <= cutoff].sort_values("date")
+              .groupby("product_id").tail(1).set_index("product_id"))
+    recent = (inv_log[(inv_log["date"] > cutoff - pd.Timedelta(days=14))
+                      & (inv_log["date"] <= cutoff)]
+              .groupby("product_id")["units_sold"].mean())
+
+    # ONEMLI: Yalnizca reorder noktasinin ALTINA dusmus ve ufukta tukenecek urunler
+    # sayilir. Reorder noktasinin ustundeki urunler NORMAL siparis dongusunde yeniden
+    # siparis edilir (bu zaten purchase_invoices'ta -> cift saymamak icin haric).
+    # Reorder altina dusup tukenmekte olan urun = PLANSIZ acil durum (rapordaki kritik
+    # stok tukenmesi ayagi). Saglikli kalibre bir isletmede bu nadirdir.
+    flows: dict[pd.Timestamp, float] = {}
+    for _, p in products.iterrows():
+        pid = p["product_id"]
+        if pid not in at_cut.index:
+            continue
+        stock = float(at_cut.loc[pid, "closing_stock"])
+        if stock >= p["reorder_point"]:            # rutin dongude -> haric (cift sayma)
+            continue
+        rate = max(float(recent.get(pid, 0.0)), 0.01)
+        lt = int(lead.get(p["supplier_id"], 7))
+        stockout_day = cutoff + pd.Timedelta(days=stock / rate)
+        if stockout_day > cutoff + pd.Timedelta(days=horizon):
+            continue
+        # acil siparis: bir dongu (horizon gunluk) talebi yeniden stokla
+        order_by = max(stockout_day - pd.Timedelta(days=lt), cutoff + pd.Timedelta(days=1))
+        cost = round(rate * horizon * float(p["unit_cost"]), 2)
+        flows[order_by] = flows.get(order_by, 0.0) + cost
+    if not flows:
+        return pd.Series(dtype=float)
+    return pd.Series(flows).sort_index()
+
+
 # --------------------------------------------------------------------------- #
 # Feature Engineering
 # --------------------------------------------------------------------------- #

@@ -12,3 +12,11 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 _extracted/
+
+# Kisisel / yarismaya ait olmayan dosyalar (public repoya ASLA girmemeli)
+*.zip
+*.pdf
+build_handoff.py
+ResilienceOS_Proje_Raporu.txt
+*Sohbet*
+*WhatsApp*
