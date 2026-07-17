@@ -13,3 +13,7 @@ lightgbm==4.6.0
 # Gercek veri kaynaklari
 kaggle==1.6.17          # NOT: yeni surumler bozuk; 1.6.17 sabit
 evds==0.4.0             # TCMB EVDS makro veri
+
+# Onyuz - API backend
+fastapi>=0.115
+uvicorn[standard]>=0.30

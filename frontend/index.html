@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ResilienceOS — Nakit Akışı Erken Uyarı</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wordmark">
+    <span class="wordmark-main">ResilienceOS</span>
+    <span class="wordmark-sub">Nakit Akışı Erken Uyarı Sistemi</span>
+  </div>
+  <div class="topbar-meta">
+    <span class="meta-label">İZLEME TARİHİ</span>
+    <span class="meta-value" id="cutoff-date">—</span>
+    <span class="source-badge" id="source-badge">yükleniyor…</span>
+  </div>
+</header>
+
+<main>
+
+  <section class="hero" id="hero">
+    <div class="hero-verdict">
+      <span class="verdict-eyebrow">DURUM DEĞERLENDİRMESİ</span>
+      <h1 class="verdict-word" id="verdict-word">—</h1>
+      <p class="verdict-detail" id="verdict-detail">Veriler yükleniyor…</p>
+    </div>
+
+    <div class="gauge-wrap">
+      <svg class="gauge" viewBox="0 0 200 120" aria-hidden="true">
+        <defs>
+          <linearGradient id="gaugeGradient" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%"  stop-color="#33B682"/>
+            <stop offset="50%" stop-color="#E8A33D"/>
+            <stop offset="100%" stop-color="#E24C4C"/>
+          </linearGradient>
+        </defs>
+        <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none"
+              stroke="url(#gaugeGradient)" stroke-width="14" stroke-linecap="round"/>
+        <line id="gauge-needle" x1="100" y1="100" x2="100" y2="30"
+              stroke="#EDEAE2" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="100" cy="100" r="6" fill="#EDEAE2"/>
+      </svg>
+      <div class="gauge-labels">
+        <span>GÜVENLİ</span><span>RİSKLİ</span><span>KRİZ</span>
+      </div>
+      <div class="gauge-value">
+        <span id="gauge-pct">—</span>
+        <span class="gauge-caption">kriz olasılığı (30 gün)</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="stats" id="stats">
+    <div class="stat-card">
+      <span class="stat-label">Başlangıç Bakiye</span>
+      <span class="stat-value" id="stat-start">—</span>
+    </div>
+    <div class="stat-card" id="stat-trough-card">
+      <span class="stat-label">En Düşük Nokta</span>
+      <span class="stat-value" id="stat-trough">—</span>
+      <span class="stat-sub" id="stat-trough-date">—</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Tampon İhlali Olasılığı</span>
+      <span class="stat-value" id="stat-buffer-prob">—</span>
+      <span class="stat-sub" id="stat-buffer-amount">—</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">En Olası Kriz Tarihi</span>
+      <span class="stat-value" id="stat-crisis-date">—</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Açık Alacak / Açık Borç</span>
+      <span class="stat-value" id="stat-ar-ap">—</span>
+    </div>
+  </section>
+
+  <section class="chart-section">
+    <div class="chart-header">
+      <h2>30 Günlük Kasa Projeksiyonu</h2>
+      <div class="legend" id="chart-legend"></div>
+    </div>
+    <div class="chart-canvas-wrap">
+      <canvas id="cashflow-chart"></canvas>
+    </div>
+  </section>
+
+  <section class="stockbridge" id="stockbridge-section" hidden>
+    <h2>Stok → Nakit Köprüsü</h2>
+    <p id="stockbridge-text"></p>
+  </section>
+
+  <div class="error-banner" id="error-banner" hidden></div>
+
+</main>
+
+<footer>
+  <span>ResilienceOS — YZTA Bootcamp 2026, Grup 317</span>
+  <span id="footer-source"></span>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
