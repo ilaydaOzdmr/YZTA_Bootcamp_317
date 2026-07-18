@@ -1,113 +1,142 @@
 <p align="center">
-  <img src="docs/banner.png" alt="ResilienceOS Banner" width="860"/>
+  <img src="docs/banner.png" alt="ResilienceOS Banner" width="720"/>
 </p>
 
-# ResilienceOS
-### KOBİ Finansal & Operasyonel Dijital İkiz + Otonom Yapay Zekâ Orkestrası
-**YZTA Bootcamp 2026 — Grup 317**
+# Takım İsmi
 
-KOBİ'lerin faturalarını, banka hareketlerini, stoklarını ve tedarikçi verilerini tek bir
-ortak veri yapısında birleştirip; **nakit akışı, tahsilat ve stok risklerini gerçekleşmeden
-tahmin eden**, şok senaryolarını simüle edip **aksiyon planı üreten** yapay zekâ destekli
-karar platformu.
+**Grup 317 — ResilienceOS**
 
-> **Headline demo:** 31 Mayıs'ta sistem, 17-19 Haziran'da bir nakit darboğazı öngörür
-> (kasa −99K TL). Sebep: ABC Tekstil'in 180K faturası 17 gün gecikecek + aynı hafta büyük
-> ham madde ödemesi + kritik stok tükenmesi. Sistem çözüm üretir: ABC'ye %2 erken ödeme
-> indirimi + tedarikçi ödemesini bölme → kasa +89K'ya döner (kriz atlatılır).
+> 📌 Projenin teknik dokümantasyonu (mimari, modeller, çalıştırma adımları) için:
+> [`docs/00_Teknik_README.md`](docs/00_Teknik_README.md)
 
 ---
 
-## Proje Yapısı
+# Ürün İle İlgili Bilgiler
 
-```
-src/
-├── data_generator/     Sentetik dijital ikiz üretici (Faker) + doğrulama (13 kontrol)
-│   ├── generate_digital_twin.py    → data/digital_twin.db (8 FK-tutarlı tablo)
-│   └── verify_digital_twin.py
-├── data_ingest/        Gerçek veri çekiciler
-│   ├── fetch_evds.py    → TCMB EVDS makro (USD/TRY, TÜFE, faiz)
-│   └── fetch_kaggle.py  → 4 gerçek veri seti
-├── models/             ML modelleri (LightGBM)
-│   ├── train_invoice_delay.py     → fatura gecikme tahmini (RMSE 4.65 gün)
-│   ├── forecast_cashflow.py       → nakit akışı ileri projeksiyonu ⭐
-│   └── forecast_demand_stock.py   → talep tahmini + stok tükenme
-├── simulation/         Şok & counterfactual motoru ("Aksiyonları Uygula")
-│   └── shock_simulation.py
-└── analysis/           Kalibrasyon doğrulaması (sentetik ↔ gerçek)
-    └── validate_calibration.py
+## Takım Elemanları
 
-data/     digital_twin.db · kaggle/ (gerçek veri setleri)
-models/   eğitilmiş modeller (*.txt)
-reports/  metrikler (*.json) + tahminler/projeksiyonlar (*.csv)
-docs/     dataset araştırması + ekip özeti
-```
+| İsim | Rol | GitHub |
+|------|-----|--------|
+| Onur Alp Erol | Scrum Master | [@OnurAlpE](https://github.com/OnurAlpE) |
+| İlayda Pekar Özdemir | Product Owner | [@ilaydaOzdmr](https://github.com/ilaydaOzdmr) |
+| Furkan Aksoy | Developer (ML & Simülasyon) | [@FurkanAksoyy](https://github.com/FurkanAksoyy) |
+| Muhammet Kuş | Developer (Frontend) | [@Kus003](https://github.com/Kus003) |
+| İsmail Güler | Developer (Frontend) | _(kullanıcı adı sonra eklenecek)_ |
 
----
+## Ürün İsmi
 
-## Hızlı Başlangıç
+**ResilienceOS**
 
-```bash
-pip install -r requirements.txt
+## Ürün Açıklaması
 
-# 1) Sentetik veriyi üret + doğrula
-python src/data_generator/generate_digital_twin.py
-python src/data_generator/verify_digital_twin.py       # 13/13 geçmeli
+KOBİ'lerin fatura, banka ve stok verilerini tek bir dijital ikizde birleştirip nakit
+krizini gerçekleşmeden tahmin eden ve çözüm öneren yapay zekâ destekli karar platformu.
 
-# 2) (Opsiyonel) Gerçek veri  — kimlik gerekir (.env / ~/.kaggle/kaggle.json)
-python src/data_ingest/fetch_evds.py                   # gerçek makroyu yükler
-python src/data_ingest/fetch_kaggle.py                 # 4 veri seti indirir
+## Ürün Özellikleri
 
-# 3) Modelleri eğit + tahmin
-python src/models/train_invoice_delay.py
-python src/models/forecast_cashflow.py
-python src/models/forecast_demand_stock.py
+- **Nakit akışı erken uyarısı** — 30 günlük projeksiyon + Monte Carlo ile kriz olasılığı
+- **Fatura gecikme tahmini** — LightGBM ile her açık faturanın kaç gün gecikeceği
+- **Talep tahmini + stok tükenme analizi** — kritik ürünler için tükenme tarihi
+- **Şok & counterfactual simülasyon** — "aksiyonları uygula" motoru (erken ödeme, faktoring, tedarikçi bölme, kur şoku)
+- **(Planlanan) Multi-agent karar orkestrası** — CFO / Tahsilat / Tedarik / Risk ajanları
 
-# 4) Şok senaryoları
-python src/simulation/shock_simulation.py
+## Hedef Kitle
 
-# 5) Kalibrasyonu gerçek veriyle doğrula
-python src/analysis/validate_calibration.py
-```
+- KOBİ finans ve ön muhasebe sorumluları
+- Mali müşavirler / muhasebeciler
+- Nakit akışını yöneten işletme sahipleri
 
-> ⚠️ **Önemli:** `generate_digital_twin.py`, `macro_daily`'yi placeholder ile yeniden yazar.
-> Gerçek makro istiyorsan **generate'den sonra `fetch_evds.py`'yi tekrar çalıştır.**
+## Product Backlog URL
 
-Kimlikler için `.env.example` → `.env` (ayrıntı: `src/data_ingest/*.py` başlıkları).
+[Trello — ResilienceOS Grup 317](https://trello.com/b/l6fzbG17/resilienceos-grup-317)
 
 ---
 
-## Mevcut Durum (Sprint 1)
+# Puanlama / Story Point Mantığı
 
-| Bileşen | Sonuç |
-|---------|-------|
-| Sentetik dijital ikiz | ✅ 8 tablo, 13/13 doğrulama |
-| Gerçek veri | ✅ EVDS makro + 4 Kaggle veri seti |
-| Kalibrasyon | ✅ Sentetik gecikme gerçek IBM dağılımına uyumlu (ort 2.71g, medyan 0, p90 13) |
-| Fatura gecikme modeli | ✅ RMSE 4.65 gün (%38.8 iyileşme) |
-| Nakit projeksiyonu | ✅ Krizi 2 gün sapmayla öngörür (−99K @ 19 Haz) |
-| Talep/stok modeli | ✅ RMSE 3.90 adet (%27.9) |
-| Şok simülasyonu | ✅ ABC erken ödeme kurtarır (+77K), kombine en iyi (+89K) |
+Kartları **modifiye Fibonacci** ölçeğiyle puanladık (3 · 5 · 8 · 13). Ölçek göreceli;
+mutlak değil (puan = saat değil). Her kartı üç sinyale göre değerlendirdik:
 
-**Sonraki (Sprint 2):** Multi-agent katman (CFO / Tahsilat / Tedarik / Risk Denetçisi) —
-bu motorları çağırıp otonom aksiyon üretir. **Sprint 3:** özel arayüz (dashboard).
+1. **Karmaşıklık** — işin kaç hareketli parçası var
+2. **Emek** — işin gerektirdiği gerçek iş yükü
+3. **Belirsizlik** — daha yapılmamış / riskli işler daha yüksek puan alır
 
----
+| Puan | Anlamı | Örnek |
+|------|--------|-------|
+| **3** | Küçük, sınırlı, tek amaçlı | veri çekme scriptleri, doğrulama, deploy, video |
+| **5** | Tam bir model / kendi başına özellik | fatura modeli, Monte Carlo |
+| **8** | Büyük ya da temel / ağır yeniden yazım | dijital ikiz üretici, nakit yeniden yazım, şok motoru, frontend |
+| **13** | En büyük + henüz yapılmamış + en belirsiz | multi-agent katman |
 
-## Mevcut Durum (Sprint 2 — ML Modelleri)
+**Renk kodu (Trello etiketleri):**
+- 🔵 **Story (mavi)** — ürünün yaptığı, kullanıcının/jürinin gördüğü yetenek
+- 🔴 **Task (kırmızı)** — o yeteneği ayakta tutan mühendislik işi (altyapı, düzeltme, doğrulama, dokümantasyon)
 
-| Bileşen | Detay | Sonuç |
-|---------|-------|-------|
-| Fatura gecikme tahmini | LightGBM, 5-fold CV, 22 özellik (RFM + tarihsel + anomali) | ✅ RMSE 4.86 gün, %89.7 geç/zamanında doğruluk |
-| Nakit akışı projeksiyonu | LightGBM, net_flow hedef, 3 senaryo (iyimser/normal/kötümser) | ✅ CV RMSE 10.627 TL/gün |
-| Talep & stok tükenme | LightGBM, EWMA + tedarikçi lead time + maliyet analizi | ✅ RMSE 0.30 adet, %92.3 iyileşme |
+> **Not:** Puan ile renk bağımsız iki eksendir. Örn. "Nakit yeniden yazımı" 🔴 task ama
+> 8 puan — küçük olduğu için değil, görünmeyen ama ağır bir altyapı düzeltmesi olduğu için.
 
-**Demo çıktıları:**
-- ABC Tekstil INV-4173 (180.000 TL) → Risk **85.0 / KRİTİK**, tahmini gecikme 20 gün
-- Ham Kumaş - ND-7234 → **KRİTİK** (stok = 0), 30g kesinti riski: 11.827 TL
-
-**Sonraki:** `shock_simulation.py` ("Aksiyonları Uygula" motoru) + CrewAI multi-agent katmanı.
+**Toplam:** 24 kart · 124 puan · Sprint 1: 32 · Sprint 2: 42 · Sprint 3: 50
 
 ---
 
-Ayrıntılı veri seti araştırması: [`docs/01_Dataset_Arastirmasi_ve_Veri_Workflow.md`](docs/01_Dataset_Arastirmasi_ve_Veri_Workflow.md)
+# Sprint 1 — Veri Altyapısı ve Temel Modeller
+
+- **Sprint Notları:** Sentetik dijital ikiz veri seti (Faker, 8 FK-tutarlı tablo) ve ilk
+  LightGBM modelleri (fatura gecikme, nakit projeksiyonu, talep/stok) kuruldu. Veri seti
+  içine "Temmuz ortası nakit krizi" paterni bilinçli olarak gömüldü.
+
+- **Backlog düzeni ve Story seçimleri:** Kartlar önceliğe göre dizildi; puanlar tek kişide
+  yığılmayacak şekilde dağıtıldı. Trello'da story'ler mavi, task'lar kırmızı etiketlendi
+  (bkz. yukarıdaki puanlama mantığı). Sprint 1 toplam 32 puan.
+
+- **Daily Scrum:** Toplantılar zamansal sebeplerle çevrimiçi (Google Meet) ve WhatsApp
+  üzerinden yapıldı.
+  ![Daily Scrum Toplantısı](ProjectManagement/Sprint1Documents/daily_scrum_meet.png)
+
+- **Sprint board update:**
+  ![Sprint 1 Board](ProjectManagement/Sprint1Documents/sprint1_board.png)
+  ![Sprint 1 Board 2](ProjectManagement/Sprint1Documents/sprint1_board_2.png)
+
+- **Ürün Durumu:** Ürün kimliği / logo tasarlandı.
+  ![ResilienceOS Logo](docs/banner.png)
+
+- **Sprint Review:** Veri altyapısı ve base modeller çalışır hale geldi. 8 tablolu sentetik
+  dijital ikiz + 3 LightGBM modeli üretildi, doğrulama 13/13 geçti. Base modellerde veri
+  sızıntısı ve veri dengesizliği fark edildi; düzeltme Sprint 2'ye taşındı.
+
+- **Sprint Retrospective:** _(daha sonra doldurulacak)_
+
+---
+
+# Sprint 2 — Model İyileştirme ve Simülasyon Motoru
+
+- **Sprint Notları:** Base modeller yeniden yazıldı (veri sızıntısı giderildi), nakit
+  projeksiyonu düzeltildi, olasılıksal kriz değerlendirmesi (Monte Carlo) ve şok /
+  counterfactual simülasyon motoru eklendi. `twin_api` araç katmanı hazırlandı.
+
+- **Backlog düzeni ve Story seçimleri:** Sprint 2, model kalitesi ve simülasyon
+  odaklıydı. En riskli/ağır kalemler (nakit yeniden yazım 8, şok motoru 8) öne alındı.
+  Sprint 2 toplam 42 puan.
+
+- **Daily Scrum:** Google Meet + WhatsApp üzerinden sürdürüldü.
+  Kanıt: [`ProjectManagement/Sprint2Documents/`](ProjectManagement/Sprint2Documents/)
+
+- **Sprint board update:**
+  ![Sprint 2 Board](ProjectManagement/Sprint2Documents/sprint2_board.png)
+
+- **Ürün Durumu:** Nakit projeksiyonu artık krizi 0 gün sapmayla öngörüyor; şok motoru
+  aksiyonların kriz olasılığını nasıl değiştirdiğini raporluyor.
+
+- **Sprint Review:** Fatura ve talep modellerindeki veri sızıntısı giderildi
+  (as-of özellikler + TimeSeriesSplit). Nakit projeksiyonundaki çifte-sayım hatası
+  düzeltildi. Monte Carlo ile kriz olasılığı, rolling backtest kalibrasyonu ve gerçek
+  Kaggle verisinde dış doğrulama eklendi. Multi-agent katman Sprint 2'ye planlanmıştı;
+  ML yeniden yazımları uzayınca Sprint 3'e alındı.
+
+- **Sprint Retrospective:** _(daha sonra doldurulacak)_
+
+---
+
+# Sprint 3 — Arayüz, Agent Katmanı ve Teslim
+
+_(Sprint 3 devam ediyor — içerik sprint sonunda doldurulacak.)_
