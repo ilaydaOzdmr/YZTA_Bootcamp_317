@@ -91,7 +91,6 @@ mutlak değil (puan = saat değil). Her kartı üç sinyale göre değerlendirdi
 
 - **Daily Scrum:** Toplantılar zamansal sebeplerle çevrimiçi (Google Meet) ve WhatsApp
   üzerinden yapıldı.
-  Kanıt: [`ProjectManagement/Sprint1Documents/`](ProjectManagement/Sprint1Documents/)
 
 - **Sprint board update:**
   ![Sprint 1 Board](ProjectManagement/Sprint1Documents/sprint1_board.png)
