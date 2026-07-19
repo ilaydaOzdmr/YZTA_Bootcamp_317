@@ -5,10 +5,11 @@ Toplantılar Google Meet + WhatsApp üzerinden sürdürüldü. Görüşülen kon
 modellerdeki veri sızıntısı, nakit projeksiyonunun yeniden yazımı, Monte Carlo ile
 olasılıksal kriz değerlendirmesi, şok/counterfactual senaryolarının tasarımı.
 
-> _Buraya WhatsApp/Meet konuşma özetlerini veya ekran görüntülerini ekleyin._
+![Daily Scrum Toplantısı](daily_scrum_meet.png)
 
 ## Bu klasöre eklenecek görseller
-- `sprint2_board.png` — Sprint 2 sonundaki Trello board görüntüsü (S2 kartları)
+- `sprint2_board.png` — Sprint 2 board görüntüsü (S2 kartları)
+- `daily_scrum_meet.png` — Google Meet Daily Scrum toplantı ekran görüntüsü (5 üye)
 
 ## Tamamlanan işler (özet)
 - Veri sızıntısı temizliği (as-of feature + TimeSeriesSplit)

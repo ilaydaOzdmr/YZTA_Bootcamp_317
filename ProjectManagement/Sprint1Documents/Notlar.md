@@ -10,7 +10,6 @@ model dağılımı (kim hangi modeli alacak), kriz paterninin veriye gömülmesi
 ## Bu klasöre eklenecek görseller
 - `sprint1_board.png` — Sprint 1 board görüntüsü (S1 kartları — 1)
 - `sprint1_board_2.png` — Sprint 1 board görüntüsü (S1 kartları — 2)
-- `daily_scrum_meet.png` — Google Meet Daily Scrum toplantı ekran görüntüsü (5 üye)
 
 ## Tamamlanan işler (özet)
 - Veri seti araştırması ve veri iş akışı dokümanı

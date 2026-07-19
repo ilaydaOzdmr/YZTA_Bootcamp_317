@@ -15,13 +15,13 @@
 
 ## Takım Elemanları
 
-| İsim | Rol | GitHub |
-|------|-----|--------|
-| Onur Alp Erol | Scrum Master | [@OnurAlpE](https://github.com/OnurAlpE) |
-| İlayda Pekar Özdemir | Product Owner | [@ilaydaOzdmr](https://github.com/ilaydaOzdmr) |
-| Furkan Aksoy | Developer (ML & Simülasyon) | [@FurkanAksoyy](https://github.com/FurkanAksoyy) |
-| Muhammet Kuş | Developer (Frontend) | [@Kus003](https://github.com/Kus003) |
-| İsmail Güler | Developer (Frontend) | _(kullanıcı adı sonra eklenecek)_ |
+| İsim | Rol | GitHub                                           |
+|------|-----|--------------------------------------------------|
+| [Onur Alp Erol](https://tr.linkedin.com/in/onur-alp-erol) | Scrum Master | [@OnurAlpE](https://github.com/OnurAlpE)         |
+| [İlayda Pekar Özdemir](https://tr.linkedin.com/in/ilayda-pekar-%C3%B6zdemir-69229725b) | Product Owner | [@ilaydaOzdmr](https://github.com/ilaydaOzdmr)   |
+| [Furkan Aksoy](https://tr.linkedin.com/in/furkan-aksoy-07a256280) | Developer (ML & Simülasyon) | [@FurkanAksoyy](https://github.com/FurkanAksoyy) |
+| [Muhammet Kuş](https://tr.linkedin.com/in/muhammet-kus-19bb82237) | Developer (Frontend) | [@Kus003](https://github.com/Kus003)             |
+| [İsmail Güler](https://tr.linkedin.com/in/ismail-guler1) | Developer (Frontend) | [@ismailguler1](https://github.com/ismailguler1) |
 
 ## Ürün İsmi
 
@@ -91,7 +91,7 @@ mutlak değil (puan = saat değil). Her kartı üç sinyale göre değerlendirdi
 
 - **Daily Scrum:** Toplantılar zamansal sebeplerle çevrimiçi (Google Meet) ve WhatsApp
   üzerinden yapıldı.
-  ![Daily Scrum Toplantısı](ProjectManagement/Sprint1Documents/daily_scrum_meet.png)
+  Kanıt: [`ProjectManagement/Sprint1Documents/`](ProjectManagement/Sprint1Documents/)
 
 - **Sprint board update:**
   ![Sprint 1 Board](ProjectManagement/Sprint1Documents/sprint1_board.png)
@@ -104,7 +104,10 @@ mutlak değil (puan = saat değil). Her kartı üç sinyale göre değerlendirdi
   dijital ikiz + 3 LightGBM modeli üretildi, doğrulama 13/13 geçti. Base modellerde veri
   sızıntısı ve veri dengesizliği fark edildi; düzeltme Sprint 2'ye taşındı.
 
-- **Sprint Retrospective:** _(daha sonra doldurulacak)_
+- **Sprint Retrospective:**
+  - Veri araştırmasını modelden önce yapmak, sentetik veriyi gerçek dağılımlara kalibre etmemizi sağladı.
+  - İlk modeller veri sızıntısı içeriyordu; doğrulama testlerini en baştan kurmalıydık.
+  - İlerleyen sprintlerde leakage kontrolünü ve iş dağılımını daha düzenli takip edeceğiz.
 
 ---
 
@@ -119,7 +122,7 @@ mutlak değil (puan = saat değil). Her kartı üç sinyale göre değerlendirdi
   Sprint 2 toplam 42 puan.
 
 - **Daily Scrum:** Google Meet + WhatsApp üzerinden sürdürüldü.
-  Kanıt: [`ProjectManagement/Sprint2Documents/`](ProjectManagement/Sprint2Documents/)
+  ![Daily Scrum Toplantısı](ProjectManagement/Sprint2Documents/daily_scrum_meet.png)
 
 - **Sprint board update:**
   ![Sprint 2 Board](ProjectManagement/Sprint2Documents/sprint2_board.png)
@@ -133,10 +136,11 @@ mutlak değil (puan = saat değil). Her kartı üç sinyale göre değerlendirdi
   Kaggle verisinde dış doğrulama eklendi. Multi-agent katman Sprint 2'ye planlanmıştı;
   ML yeniden yazımları uzayınca Sprint 3'e alındı.
 
-- **Sprint Retrospective:** _(daha sonra doldurulacak)_
+- **Sprint Retrospective:**
+  - Kendi modellerimizdeki hataları (leakage, çifte-sayım) yakalayıp düzelttik ve olasılıksal tahmine (Monte Carlo) geçtik.
+  - Multi-agent katmanı Sprint 2'ye sığdıramayıp Sprint 3'e aldık; kapsamı fazla iyimser planlamıştık.
+  - Sprint kapsamını daha gerçekçi tutacak ve katkı dağılımını dengeleyeceğiz.
 
 ---
 
 # Sprint 3 — Arayüz, Agent Katmanı ve Teslim
-
-_(Sprint 3 devam ediyor — içerik sprint sonunda doldurulacak.)_
