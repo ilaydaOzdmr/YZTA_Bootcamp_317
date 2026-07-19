@@ -6,8 +6,8 @@
 
 **Grup 317 — ResilienceOS**
 
-> 📌 Projenin teknik dokümantasyonu (mimari, modeller, çalıştırma adımları) için:
-> [`docs/00_Teknik_README.md`](docs/00_Teknik_README.md)
+> 📌 Projenin tüm teknik dokümantasyonu (mimari, modeller, çalıştırma, veri seti, frontend)
+> [`docs/`](docs/) klasöründedir. Başlangıç için: [`docs/00_Teknik_README.md`](docs/00_Teknik_README.md)
 
 ---
 
