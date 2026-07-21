@@ -48,6 +48,17 @@ docs/     dataset araştırması + ekip özeti
 ## Hızlı Başlangıç
 
 ```bash
+# Sanal ortamı oluştur (Proje ana dizinindeyken)
+python -m venv venv
+
+# Sanal ortamı aktif et (Windows için)
+venv\Scripts\activate
+# (Mac/Linux için: source venv/bin/activate)
+
+# ".env" dosyası oluştur ve içerisine şunu ekle
+GEMINI_API_KEY=senin_api_anahtarin_buraya
+
+# Gerekli paketleri kur
 pip install -r requirements.txt
 
 # 1) Sentetik veriyi üret + doğrula
