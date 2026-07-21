@@ -45,9 +45,16 @@ docs/     dataset araştırması + ekip özeti
 
 ---
 
-## Hızlı Başlangıç
+## Kurulum ve Hazırlık
 
 ```bash
+
+# Projenin yerel ortamda sorunsuz çalışması için aşağıdaki adımları sırasıyla uygulayın:
+# Repoyu Klonlayın:
+
+git clone https://github.com/ilaydaOzdmr/YZTA_Bootcamp_317.git
+cd YZTA_Bootcamp_317
+
 # Sanal ortamı oluştur (Proje ana dizinindeyken)
 python -m venv venv
 
@@ -55,8 +62,9 @@ python -m venv venv
 venv\Scripts\activate
 # (Mac/Linux için: source venv/bin/activate)
 
-# ".env" dosyası oluştur ve içerisine şunu ekle
-GEMINI_API_KEY=senin_api_anahtarin_buraya
+# Çevresel Değişkenleri Ayarlayın: Proje kök dizininde bir ".env" dosyası oluşturun ve Gemini API anahtarınızı ekleyin. 
+#(API Key almak için: https://aistudio.google.com/api-keys) 
+GEMINI_API_KEY=sizin_api_anahtariniz_buraya_gelecek
 
 # Gerekli paketleri kur
 pip install -r requirements.txt
