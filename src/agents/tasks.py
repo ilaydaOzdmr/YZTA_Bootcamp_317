@@ -22,5 +22,6 @@ task_tedarik = Task(
 task_cozum_raporu = Task(
     description='Diğer ajanların bulgularını incele. Aksiyon önerileri aracını kullanarak mevcut kriz olasılığını sıfıra (%0) indirecek en iyi "Kombine Çözüm" paketini seç ve yönetime sunulacak nihai bir durum/aksiyon raporu yaz.',
     expected_output='Mevcut kriz durumu, departman bulguları ve seçilen en iyi aksiyon paketini içeren, profesyonel bir Yönetim Özeti (Markdown formatında).',
-    agent=risk_orkestrator
+    agent=risk_orkestrator,
+    context=[task_cfo, task_tahsilat, task_tedarik]
 )
