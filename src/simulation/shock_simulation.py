@@ -109,19 +109,34 @@ def monte_carlo(
     future: pd.DatetimeIndex,
     n_sims: int = 2000,
 ) -> dict:
+    """Monte Carlo: gecikme gürültüsü ile kriz olasılığı hesabı."""
+    from collections import Counter
     rng = np.random.default_rng(42)
     troughs = []
+    first_neg_dates = []
     for _ in range(n_sims):
         r = recv.copy()
         noise = rng.normal(0, DAYS_LATE_SIGMA, size=len(r)) * r["sigma_scale"].values
         r["pred_days_late"] = (r["pred_days_late"] + noise).clip(lower=0)
-        troughs.append(float(project(r, pay, start, future).min()))
+        proj = project(r, pay, start, future)
+        tmin = float(proj.min())
+        troughs.append(tmin)
+        neg = proj[proj < 0]
+        if len(neg):
+            first_neg_dates.append(neg.index[0])
     arr = np.array(troughs)
+    en_olasi = None
+    if first_neg_dates:
+        en_olasi = str(Counter(d.date() for d in first_neg_dates).most_common(1)[0][0])
     return {
-        "eksiye_dusme_olasiligi": float((arr < 0).mean()),
-        "cukur_P5":  float(np.percentile(arr, 5)),
-        "cukur_P50": float(np.percentile(arr, 50)),
+        "eksiye_dusme_olasiligi":   float((arr < 0).mean()),
+        "tampon_ihlali_olasiligi":  float((arr < MIN_CASH_BUFFER).mean()),
+        "cukur_P5":                 float(np.percentile(arr, 5)),
+        "cukur_P50":                float(np.percentile(arr, 50)),
+        "cukur_P95":                float(np.percentile(arr, 95)),
+        "en_olasi_kriz_tarihi":     en_olasi,
     }
+
 
 
 def _ensure_scale(df: pd.DataFrame) -> pd.DataFrame:
@@ -196,6 +211,32 @@ def status_of(trough: float) -> str:
     return "GUVENLI"
 
 
+def get_scenarios(cutoff: pd.Timestamp) -> dict:
+    """Senaryo sozlugunu verilen cutoff ile olusturur. twin_api ve main() tarafindan kullanilir."""
+    return {
+        "0_baseline":           ("Baseline (aksiyon yok)",
+                                 lambda r, p: (r, p), False),
+        "1_erken_odeme":        ("ABC erken odeme (%2 indirim)",
+                                 s_early_discount, True),
+        "2_tahsilat_kampanya":  (f"Tahsilat kampanyasi (en riskli {CAMPAIGN_TOP_N} fatura)",
+                                 s_collection_campaign, True),
+        "3_faktoring":          ("Buyuk faturayi faktore sat (%5 iskonto)",
+                                 lambda r, p: s_factoring(r, p, cutoff), True),
+        "4_tedarikci_bolme":    (f"Tedarikci odemesini 2 taksite bol (+{SUPPLIER_DEFER_DAYS}g, Q4'e)",
+                                 s_split_supplier, True),
+        "5_kombine_cozum":      ("KOMBINE COZUM (erken odeme + tedarikci bolme)",
+                                 lambda r, p: s_combined(r, p, cutoff), True),
+        "6_tahsilat_yavaslama": (f"SOK: tahsilat yavaslamasi (+{CUSTOMER_DELAY_DAYS}g)",
+                                 s_collection_slowdown, False),
+        "7_kur_soku":           (f"SOK: kur +%{_FX_SHOCK*100:.0f} (EVDS'den)",
+                                 s_fx_shock, False),
+    }
+
+
+# Modül seviyesinde varsayılan SCENARIOS (twin_api import uyumluluğu için)
+SCENARIOS: dict = {}
+
+
 def main() -> None:
     global _FX_SHOCK
     REPORT_DIR.mkdir(exist_ok=True)
@@ -212,24 +253,8 @@ def main() -> None:
 
     future = pd.date_range(CUTOFF + pd.Timedelta(days=1), periods=FORECAST_DAYS, freq="D")
 
-    SCENARIOS: dict[str, tuple] = {
-        "0_baseline":           ("Baseline (aksiyon yok)",
-                                 lambda r, p: (r, p), False),
-        "1_erken_odeme":        ("ABC erken odeme (%2 indirim)",
-                                 s_early_discount, True),
-        "2_tahsilat_kampanya":  (f"Tahsilat kampanyasi (en riskli {CAMPAIGN_TOP_N} fatura)",
-                                 s_collection_campaign, True),
-        "3_faktoring":          ("Buyuk faturayi faktore sat (%5 iskonto)",
-                                 lambda r, p: s_factoring(r, p, CUTOFF), True),
-        "4_tedarikci_bolme":    (f"Tedarikci odemesini 2 taksite bol (+{SUPPLIER_DEFER_DAYS}g, Q4'e)",
-                                 s_split_supplier, True),
-        "5_kombine_cozum":      ("KOMBINE COZUM (erken odeme + tedarikci bolme)",
-                                 lambda r, p: s_combined(r, p, CUTOFF), True),
-        "6_tahsilat_yavaslama": (f"SOK: tahsilat yavaslamasi (+{CUSTOMER_DELAY_DAYS}g)",
-                                 s_collection_slowdown, False),
-        "7_kur_soku":           (f"SOK: kur +%{_FX_SHOCK*100:.0f} (EVDS'den)",
-                                 s_fx_shock, False),
-    }
+    global SCENARIOS
+    SCENARIOS = get_scenarios(CUTOFF)
 
     curves  = pd.DataFrame({"date": future.strftime("%Y-%m-%d")})
     results = []
