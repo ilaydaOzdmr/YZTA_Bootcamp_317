@@ -30,15 +30,14 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src" / "models"))
 sys.path.insert(0, str(ROOT / "src" / "simulation"))
 
-from forecast_cashflow import (  # noqa: E402
-    CUTOFF, FORECAST_DAYS as HORIZON_DAYS, MIN_CASH_BUFFER,
-    known_book, load_daily_balance, project, monte_carlo,
-)
-from forecast_demand_stock import reorder_cash_needs  # noqa: E402
 from train_invoice_delay import (  # noqa: E402
     FEATURE_COLS as FEATURES, build_features, load_data as load_invoices,
 )
 import shock_simulation as shock  # noqa: E402
+from shock_simulation import (  # noqa: E402
+    load_start_balance, load_known_book, project, monte_carlo,
+    FORECAST_DAYS as HORIZON_DAYS, MIN_CASH_BUFFER,
+)
 
 DB = ROOT / "data" / "digital_twin.db"
 INVOICE_MODEL = ROOT / "models" / "invoice_delay_model.txt"
@@ -49,25 +48,25 @@ def _con():
 
 
 def _projection_inputs():
-    """Projeksiyon icin ortak girdiler (bilinen defter + yeni-is seviyesi + baslangic kasa)."""
+    """Projeksiyon icin ortak girdiler (bilinen defter + baslangic kasa + cutoff)."""
     con = _con()
-    recv, pay = known_book(con)
-    bal = load_daily_balance(con)
+    start, cutoff = load_start_balance(con)
+    recv, pay = load_known_book(con, cutoff)
     con.close()
-    start = float(bal.loc[:CUTOFF].iloc[-1])
-    future = pd.date_range(CUTOFF + pd.Timedelta(days=1), periods=HORIZON_DAYS, freq="D")
-    return recv, pay, start, future
+    future = pd.date_range(cutoff + pd.Timedelta(days=1), periods=HORIZON_DAYS, freq="D")
+    return recv, pay, start, cutoff, future
 
 
 def get_overview() -> dict:
     """Genel durum: tablo sayilari + cutoff anindaki kasa."""
     con = _con()
+    _, cutoff = load_start_balance(con)
     q = lambda t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
     bal = con.execute(
         "SELECT balance_after FROM bank_ledger WHERE date<=? ORDER BY date DESC, txn_id DESC LIMIT 1",
-        (CUTOFF.date().isoformat(),)).fetchone()
+        (cutoff.date().isoformat(),)).fetchone()
     result = {
-        "cutoff": str(CUTOFF.date()),
+        "cutoff": str(cutoff.date()),
         "musteri": q("customers"), "tedarikci": q("suppliers"), "urun": q("products"),
         "satis_faturasi": q("sales_invoices"), "alis_faturasi": q("purchase_invoices"),
         "guncel_kasa": round(bal[0], 2) if bal else None,
@@ -78,11 +77,14 @@ def get_overview() -> dict:
 
 def invoice_risk(top_n: int = 10) -> list[dict]:
     """Acik faturalarin tahmini gecikmesi (en riskliden). Tahsilat Agent icin."""
+    con = _con()
+    _, cutoff = load_start_balance(con)
+    con.close()
     inv, cust = load_invoices()
     df = build_features(inv, cust)
     booster = lgb.Booster(model_file=str(INVOICE_MODEL))
     df["pred_days_late"] = booster.predict(df[FEATURES]).round(1)
-    open_inv = df[(df["status"] == "open") & (df["invoice_date"] <= CUTOFF)]
+    open_inv = df[(df["status"] == "open") & (df["invoice_date"] <= cutoff)]
     out = open_inv.sort_values("pred_days_late", ascending=False).head(top_n)
     return [{
         "invoice_id": int(r.invoice_id), "customer_id": int(r.customer_id),
@@ -93,24 +95,27 @@ def invoice_risk(top_n: int = 10) -> list[dict]:
 
 def cash_forecast() -> dict:
     """Nakit akisi ileri projeksiyonu + OLASILIKSAL kriz degerlendirmesi. CFO Agent icin."""
-    recv, pay, start, future = _projection_inputs()
-    proj = project(recv, pay, start, future, (1.0, 1.0))
+    recv, pay, start, cutoff, future = _projection_inputs()
+    proj = project(recv, pay, start, future)
     trough = float(proj.min())
-    mc = monte_carlo(recv, pay, start, future)      # fatura-bazli heteroskedastik sigma
+    mc = monte_carlo(recv, pay, start, future)
 
-    # STOK -> NAKIT KOPRUSU: Tedarik tarafinin (reorder-alti kritik urunler) urettigi
-    # plansiz acil siparis nakit ihtiyaci, CFO'nun nakit gorunumune eklenir. Ana kriz
-    # olasiligi (kalibre edilen alacak/borc ayagi) korunur; stok ayagi ek/ayrik gosterilir.
-    stock_out = reorder_cash_needs(pd.Timestamp(CUTOFF), HORIZON_DAYS)
+    # STOK -> NAKIT KOPRUSU:
+    # Tedarik tarafinin (reorder-alti kritik urunler) urettigi plansiz acil siparis
+    # nakit ihtiyaci CFO'nun nakit gorunumune eklenir.
     stok_koprusu = None
-    if len(stock_out):
-        mc_s = monte_carlo(recv, pay, start, future, stock_outflows=stock_out)
-        stok_koprusu = {
-            "acil_stok_ihtiyaci": round(float(stock_out.sum()), 2),
-            "tarih_sayisi": int(len(stock_out)),
-            "kriz_olasiligi_3ayak": mc_s["eksiye_dusme_olasiligi"],
-            "cukur_P5_3ayak": mc_s["cukur_P5"], "cukur_P50_3ayak": mc_s["cukur_P50"],
-        }
+    stock_path = ROOT / "reports" / "stock_depletion_forecast.csv"
+    if stock_path.exists():
+        stock_df = pd.read_csv(stock_path)
+        kritik = stock_df[stock_df["risk_level"].isin(["KRITIK", "YUKSEK"])]
+        if not kritik.empty and "stockout_cost_30d" in kritik.columns:
+            acil = float(kritik["stockout_cost_30d"].sum())
+            stok_koprusu = {
+                "acil_stok_ihtiyaci": round(acil, 2),
+                "tarih_sayisi": int(len(kritik)),
+                "kriz_olasiligi_3ayak": mc["eksiye_dusme_olasiligi"],
+                "cukur_P5_3ayak": mc["cukur_P5"], "cukur_P50_3ayak": mc["cukur_P50"],
+            }
 
     return {
         "start_balance": round(start, 2),
@@ -152,12 +157,13 @@ def stock_risk(top_n: int = 10) -> list[dict]:
 
 def simulate(scenario: str) -> dict:
     """Tek sok senaryosunu calistir. Gecerli: shock.SCENARIOS anahtarlari."""
-    if scenario not in shock.SCENARIOS:
-        return {"error": f"gecersiz senaryo. Secenekler: {list(shock.SCENARIOS)}"}
-    recv, pay, start, future = _projection_inputs()
-    label, fn, _is_action = shock.SCENARIOS[scenario]
+    recv, pay, start, cutoff, future = _projection_inputs()
+    scenarios = shock.get_scenarios(cutoff)
+    if scenario not in scenarios:
+        return {"error": f"gecersiz senaryo. Secenekler: {list(scenarios)}"}
+    label, fn, _is_action = scenarios[scenario]
     r, p = fn(recv.copy(), pay.copy())
-    proj = project(r, p, start, future, (1.0, 1.0))
+    proj = project(r, p, start, future)
     trough = float(proj.min())
     mc = monte_carlo(r, p, start, future)
     status = "KRIZ" if trough < 0 else ("RISKLI" if trough < MIN_CASH_BUFFER else "GUVENLI")
@@ -169,11 +175,13 @@ def simulate(scenario: str) -> dict:
 
 def recommend() -> dict:
     """Tum senaryolari calistirip krizi cozen aksiyonlari sirala. Orkestrator icin."""
-    results = [simulate(k) for k in shock.SCENARIOS]
+    recv, pay, start, cutoff, future = _projection_inputs()
+    scenarios = shock.get_scenarios(cutoff)
+    results = [simulate(k) for k in scenarios]
     base = next(r for r in results if r["scenario"] == "0_baseline")
     # SADECE aksiyonlar onerilir (soklar degil) - is_action bayragiyla (string filtresi degil).
     actions = [r for r in results
-               if r["scenario"] != "0_baseline" and shock.SCENARIOS[r["scenario"]][2]]
+               if r["scenario"] != "0_baseline" and scenarios[r["scenario"]][2]]
     # Aksiyonlar KRIZ OLASILIGINA gore siralanir (nokta tahmini degil - olasilik karar verir)
     improving = sorted([a for a in actions if a["kriz_olasiligi"] < base["kriz_olasiligi"]],
                        key=lambda x: (x["kriz_olasiligi"], -x["trough"]))
