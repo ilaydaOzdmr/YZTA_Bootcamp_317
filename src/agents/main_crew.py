@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from crewai import Crew, Process
 
@@ -28,6 +29,11 @@ if __name__ == "__main__":
     
     result = resilience_crew.kickoff()
     
+    report_path = Path(ROOT) / "reports" / "agent_report.md"
+    report_path.parent.mkdir(exist_ok=True)
+    report_path.write_text(str(result), encoding="utf-8")
+
     print("=" * 60)
     print("NİHAİ YÖNETİM RAPORU:\n")
     print(result)
+    print(f"\nRapor kaydedildi: {report_path}")
