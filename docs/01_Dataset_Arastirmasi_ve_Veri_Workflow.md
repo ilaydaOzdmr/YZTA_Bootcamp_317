@@ -3,6 +3,11 @@
 > Sprint 1 hazırlık dokümanı · Güncelleme: 30 Haziran 2026
 > **v2 notu:** 7 açıdan çoklu-ajan derin araştırma + her veri setinin bağımsız erişilebilirlik/şema doğrulaması (40 ajan, 264 web araması) sonucu. Doğrulama düzeltmeleri ⚠️ ile işaretlendi.
 
+> **Uygulama notu:** Bu doküman değerlendirilen tüm araç/veri seçeneklerini içerir (araştırma
+> derinliği). Projede sonunda kullanılanlar: **Faker** (sentetik veri — SDV kullanılmadı),
+> **LightGBM** (tüm modeller — Prophet/CatBoost değerlendirildi, seçilmedi), **TCMB EVDS**
+> (makro), gerçek Kaggle/IBM setleri (kalibrasyon/doğrulama).
+
 ---
 
 ## 0. Strateji — Karar (değişmedi, güçlendi)
@@ -14,7 +19,7 @@ Proje bir **Dijital İkiz**: tek kurgusal KOBİ'nin faturaları + banka + stok +
 2. **Faker + SDV ile tek kurgusal şirketin ilişkisel verisini üret** (SQLite), gerçek dağılıma kalibre et.
 3. **Gerçek makro seriyi (TCMB EVDS) bindir** — şok simülasyonu için.
 
-Araştırma bu stratejiyi doğruladı: en güçlü akademik referans **arXiv 2511.03631 (SME Financial Management System)** birebir bu yolu izliyor — IBM + HighRadius Kaggle setlerini kullanıp, soğuk başlangıçta (cold-start, az veri) modüler yaklaşımı klasik modellere üstün buluyor (**MAPE %11.85** vs Prophet %159, SVR %166). Yani "az veri + sentetik + modüler" yaklaşımı KOBİ gerçekliğine en uygunu — jüriye savunulabilir.
+Araştırma bu stratejiyi doğruladı: en güçlü akademik referans **arXiv 2511.03631 (SME Financial Management System)** birebir bu yolu izliyor — IBM + HighRadius Kaggle setlerini kullanıp, soğuk başlangıçta (cold-start, az veri) modüler yaklaşımı klasik modellere üstün buluyor (**MAPE %11.85** vs Prophet %159, SVR %166). Yani "az veri + sentetik + modüler" yaklaşımı KOBİ gerçekliğine en uygun olanıdır.
 
 ---
 
@@ -30,11 +35,11 @@ Araştırma bu stratejiyi doğruladı: en güçlü akademik referans **arXiv 251
 
 **HighRadius şeması:** `business_code, cust_number, name_customer, clear_date, due_in_date, total_open_amount, cust_payment_terms, baseline_create_date, invoice_currency, is_open_invoice, document_type, posting_id`. Hedef = `clear_date − due_in_date` (regresyon) veya gec/zamanında (sınıflandırma).
 
-> ⚠️ **Doğrulama düzeltmeleri:** (1) HighRadius verisi gerçekte **büyük kurumsal B2B** (SAP/HighRadius müşterileri), "KOBİ verisi" değil — model şablonu olarak kullan ama jüriye "KOBİ verisi" deme. (2) Kolon adı `isOpen` değil **`is_open_invoice`**. (3) Lisans Kaggle'da net değil; indirmeden önce "License" alanına bak.
+> ⚠️ **Doğrulama düzeltmeleri:** (1) HighRadius verisi gerçekte **büyük kurumsal B2B** (SAP/HighRadius müşterileri), "KOBİ verisi" değildir — model şablonu / dağılım kaynağı olarak kullanılır, "KOBİ verisi" olarak sunulmaz. (2) Kolon adı `isOpen` değil **`is_open_invoice`**. (3) Lisans Kaggle'da net değil; indirmeden önce "License" alanına bak.
 
 **IBM şeması (kesin):** `countryCode, customerID, PaperlessDate, invoiceNumber, InvoiceDate, DueDate, InvoiceAmount, Disputed, SettledDate, PaperlessBill, DaysToSettle, DaysLate`. → `DaysLate` regresyon. ABC Tekstil senaryonun birebir altyapısı.
 
-**Kalibrasyon ground-truth (gerçek, jüri için altın değerinde):**
+**Kalibrasyon ground-truth (gerçek firma verisi):**
 - **UK Payment Practices Reporting** (GOV.UK) — ✅ confirmed, **Open Government Licence** (ticari kullanıma açık!), CSV toplu indirme (`/export/csv/`). Firma düzeyinde gerçek "ortalama ödeme günü, %30/60/61+ gün içinde ödenen, geç ödeme %". Sentetik gecikme dağılımını gerçek istatistiğe kalibre etmek için.
 - **EU Payment Observatory / Intrum** — sektör/ülke kırılımında DSO, B2B ödeme açığı (kalibrasyon için ikincil).
 

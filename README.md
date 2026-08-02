@@ -143,3 +143,49 @@ mutlak değil (puan = saat değil). Her kartı üç sinyale göre değerlendirdi
 ---
 
 # Sprint 3 — Arayüz, Agent Katmanı ve Teslim
+
+- **Sprint Notları:** Multi-agent katman (CrewAI, 4 ajan) hazır `twin_api` üzerine sarılarak
+  eklendi; FastAPI dashboard genişletildi (fatura/stok risk tabloları + şok simülatörü +
+  logolu açılış sayfası); teknik dokümantasyon (docs/00–04) güncellendi.
+
+- **Backlog düzeni ve Story seçimleri:** Sprint 3, agent katmanı + arayüz + teslim odaklı.
+  En büyük iş multi-agent katman (13 puan) öne alındı; bulut deploy, demo videosu ve RAG
+  backlog'da bırakıldı. Trello'da story'ler mavi, task'lar kırmızı etiketlendi.
+
+- **Daily Scrum:** Google Meet + WhatsApp üzerinden sürdürüldü.
+  ![Daily Scrum Toplantısı 1](ProjectManagement/Sprint3Documents/daily_scrum_meet2.png)
+  ![Daily Scrum Toplantısı 2](ProjectManagement/Sprint3Documents/daily_scrum_meet3.png)
+
+- **Sprint board update:**
+  ![Sprint 3 Board](ProjectManagement/Sprint3Documents/sprint3_board.png)
+
+- **Ürün Durumu:** Dashboard uçtan uca çalışıyor. Bölümler:
+
+  **Açılış sayfası** — KOBİ'nin fatura, banka ve stok verisini tek dijital ikizde birleştiren nakit akışı erken uyarı platformu.
+  ![Açılış](ProjectManagement/Sprint3Documents/landing.png)
+
+  **Durum + Kriz Göstergesi** — Sistem 30 gün ileri bakıp kasanın 18 Haziran'da 7.717 TL'ye ineceğini öngörüyor; Monte Carlo ile kriz olasılığı %56. Kartlarda başlangıç bakiye, en düşük nokta, tampon ihlali (%83) ve açık alacak/borç.
+  ![Durum ve gösterge](ProjectManagement/Sprint3Documents/overview.png)
+
+  **30 Günlük Kasa Projeksiyonu** — İyimser/normal/kötümser senaryolar + gerçekleşen eğri; kriz tarihi 0 gün sapmayla öngörülüyor. Stok→nakit köprüsü acil sipariş ihtiyacını gösteriyor.
+  ![Kasa projeksiyonu](ProjectManagement/Sprint3Documents/cashflow_chart.png)
+
+  **En Riskli Açık Faturalar** — Gecikme riskine göre sıralı faturalar; ABC Tekstil #4218 (180.000 TL) en riskli (KRİTİK). Tahsilat ajanının önceliklendireceği liste.
+  ![Riskli faturalar](ProjectManagement/Sprint3Documents/invoice_risk.png)
+
+  **Stok Tükenme Riski** — LightGBM talep tahmininden gelen tükenme öngörüsü; Ham Kumaş stoğu 0, 30 Haziran'da tükeniyor (KRİTİK). Tedarik ajanının izleyeceği liste.
+  ![Stok riski](ProjectManagement/Sprint3Documents/stock_risk.png)
+
+  **Şok & Aksiyon Simülatörü** — Counterfactual motor: erken ödeme, faktoring veya tedarikçi bölme gibi aksiyonlar seçilince kriz olasılığı yeniden hesaplanıyor; kombine çözümle %0'a iniyor.
+  ![Şok simülatörü](ProjectManagement/Sprint3Documents/simulator.png)
+
+- **Sprint Review:** CrewAI ile 4 ajan (CFO / Tahsilat / Tedarik / Risk Orkestratör) yazıldı
+  ve çalıştırıldı; ajan raporu `reports/agent_report.md`'ye kaydediliyor. FastAPI dashboard
+  8 endpoint'e genişledi (fatura/stok tabloları, şok simülatörü, açılış sayfası). Teknik
+  dokümantasyon gerçek çıktılarla güncellendi. 3 dakikalık demo videosu hazırlandı.
+  Kalan: bulut deploy.
+
+- **Sprint Retrospective:**
+  - Ajan katmanını sıfırdan değil, hazır `twin_api` üzerine sararak kurduk; mimari bu sayede hızlı ilerledi.
+  - Otonom ajan çerçevesi (CrewAI) sabit iş akışımız için çok sayıda LLM çağrısı üretti; ücretsiz kota yönetimini `agent_report.md` cache'iyle çözdük.
+  - Teslim kalemleri (deploy, demo videosu) son sprinte yığıldı; kapsamı daha erken kesinleştirmeliydik.

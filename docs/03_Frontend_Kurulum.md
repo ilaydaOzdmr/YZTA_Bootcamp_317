@@ -3,8 +3,8 @@
 ## Mimari
 
 ```
-src/api/server.py   FastAPI backend. twin_api.py'yi HTTP'ye açar.
-frontend/            Statik HTML/CSS/JS dashboard (Node.js gerekmez).
+src/api/server.py   FastAPI backend. twin_api.py'yi 8 endpoint ile HTTP'ye açar.
+frontend/            Statik dashboard (index.html açılış + dashboard.html), Chart.js — Node.js gerekmez.
 ```
 
 Backend iki modda çalışır:
@@ -29,26 +29,26 @@ uvicorn src.api.server:app --reload --port 8000
 
 Tarayıcıda aç: **http://localhost:8000**
 
-## Şu an kapsam
+## Kapsam (güncel)
 
-Sprint 3'ün ilk adımı olarak sadece **nakit akışı + kriz uyarısı** ekranı
-hazır:
+Dashboard, `twin_api`'nin tüm çıktılarını gösterir — 8 endpoint canlı:
 
+**Ana ekran (nakit + kriz):**
 - Kriz olasılığı göstergesi (yarım daire gauge)
-- 30 günlük kasa projeksiyonu grafiği (iyimser/normal/kötümser + gerçekleşen)
+- 30 günlük kasa projeksiyonu grafiği (iyimser/normal/kötümser + gerçekleşen, Chart.js)
 - Özet kartlar: başlangıç bakiye, en düşük nokta, tampon ihlali olasılığı,
   en olası kriz tarihi, açık alacak/borç
-- Stok→nakit köprüsü uyarısı (varsa)
+- Stok→nakit köprüsü uyarısı
 
-## Sıradaki genişletmeler
+**Risk tabloları:**
+- Riskli faturalar tablosu (`/api/invoice-risk`)
+- Stok tükenme tablosu (`/api/stock-risk`)
 
-`src/core/twin_api.py`'de zaten hazır, backend'e eklenmeyi bekleyen
-fonksiyonlar:
+**Şok simülatörü ("Aksiyonları Uygula"):**
+- Senaryo listesi (`/api/scenarios`), tek senaryo (`/api/simulate/{key}`),
+  en iyi aksiyon önerisi (`/api/recommend`)
 
-- `invoice_risk(top_n)` → riskli faturalar tablosu
-- `stock_risk(top_n)` → stok tükenme tablosu
-- `simulate(scenario)` / `recommend()` → "Aksiyonları Uygula" şok simülatörü
+**Endpoint özeti:** `/api/overview`, `/api/cash-forecast`, `/api/invoice-risk`,
+`/api/stock-risk`, `/api/scenarios`, `/api/simulate/{key}`, `/api/recommend`, `/api/health`
 
-Her biri için `src/api/server.py`'ye yeni bir `@app.get(...)` rotası ve
-`frontend/`'e karşılık gelen bir bölüm eklemek yeterli — mevcut desen
-(canlı/offline fallback) aynı şekilde tekrar kullanılabilir.
+Her endpoint canlı/offline iki modludur; DB/model yoksa `reports/` çıktılarına düşer.

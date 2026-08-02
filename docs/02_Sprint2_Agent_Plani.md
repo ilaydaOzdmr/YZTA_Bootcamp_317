@@ -1,8 +1,10 @@
-# Sprint 2 — Multi-Agent Katman Planı (taslak)
+# Multi-Agent Katman Planı (Sprint 2 tasarımı)
 
+> **Durum:** Bu plan Sprint 3'te uygulandı — `src/agents/` altında CrewAI + Gemini 2.0 Flash
+> ile 4 ajan yazıldı. Uygulanan katmanın ayrıntısı: [`04_Multi_Agent_Katmani.md`](04_Multi_Agent_Katmani.md).
+>
 > Amaç: Sprint 1'de kurduğumuz modelleri + şok simülasyonunu, birbiriyle konuşan yapay
-> zeka ajanlarına bağlamak. Ajanlar `src/core/twin_api.py`'deki hazır fonksiyonları çağırır
-> (framework-bağımsız — CrewAI, LangChain veya düz Python ile çalışır).
+> zeka ajanlarına bağlamak. Ajanlar `src/core/twin_api.py`'deki hazır fonksiyonları çağırır.
 
 ## Ajan mimarisi
 
@@ -20,13 +22,13 @@
 "Bugün" = 31 Mayıs 2025 (kriz henüz olmadı)
 
 1. Orkestratör -> situation_report()
-2. CFO         -> cash_forecast(): "eksiye düşme olasılığı %73, en olası tarih 2025-06-18"
+2. CFO         -> cash_forecast(): "eksiye düşme olasılığı %56, en olası tarih 2025-06-18"
                   (gerçekleşen: -59.780 TL @ 18 Haziran -> tarih sapması 0 gün)
 3. Tahsilat    -> invoice_risk(): ABC'nin 180.000 TL faturası gecikecek (en riskli)
 4. Tedarik     -> stock_risk(): kritik Ham Kumaş 30 Haziran'da tükeniyor (KRİTİK)
-5. Risk Den.   -> simulate("3_kur_soku"): kur %10 artarsa kriz olasılığı %100
+5. Risk Den.   -> simulate("kur_soku"): kur şoku uygulanırsa kriz olasılığı %100
 6. Orkestratör -> recommend(): KOMBİNE ÇÖZÜM (erken ödeme + tedarikçi bölme)
-                  -> kriz olasılığı %73 -> %0, beklenen kasa +466.130 TL
+                  -> kriz olasılığı %56 -> %0
 ```
 
 **Not:** İyimser senaryoda (tüm tahsilatlar vadesinde) kasa +299.204 TL. kriz yok.
@@ -34,7 +36,7 @@ Kapsam: projeksiyon 30 günlük ufukta ve yalnızca **bilinen defter** (cutoff'a
 faturalar) üzerinden yapılır; "şirket sonsuza dek güvenli" gibi bir iddia YOKTUR.
 Krizin sebebi **tahsilat gecikmesi** — bu, Tahsilat Agent'ın aksiyonunu doğrudan gerekçelendirir.
 
-## Modellerin çıktıya etkisi (jüri sorabilir)
+## Modellerin çıktıya etkisi
 
 | Model | Çıktıya etkisi |
 |-------|----------------|
@@ -43,17 +45,16 @@ Krizin sebebi **tahsilat gecikmesi** — bu, Tahsilat Agent'ın aksiyonunu doğr
 | Monte Carlo | Modelin hata dağılımından örnekleyerek **kriz olasılığını** hesaplar |
 | Nakit projeksiyonu | Deterministik "bilinen defter" (direct method); **ML katkısı tahsilat zamanlaması** |
 
-Bu ayrımı dürüstçe anlatıyoruz: krizi bulan şey ML tahsilat zamanlaması + muhasebe defteri.
-"ML krizi keşfetti" gibi bir iddia çürütülebilir; bu çerçeve savunulabilir.
+Krizi belirleyen şey, ML'in tahsilat zamanlaması ile muhasebe defterinin birleşimidir;
+ML tek başına "krizi keşfetmez". Bu ayrım dokümantasyonda bilinçli olarak korunur.
 
-## Teknik kararlar (toplantıda netleştirilecek)
+## Teknik kararlar (uygulandı)
 
-- **Framework:** Öneri **CrewAI** (rol/görev ayrımı net; `twin_api` fonksiyonları doğrudan
-  `@tool` olarak sarılır). Alternatif: LangGraph.
-- **LLM:** API anahtarı kimde olacak?
-- **RAG / ortak hafıza:** ChromaDB; CrewAI'nin yerleşik memory'si başlangıç için yeterli
-  (sürüm sabitlenmeli — güncel sürümlerde varsayılan backend değişti).
-- **Mail taslağı:** Tahsilat ajanı, şirket tonuna uygun hatırlatma üretir.
+- **Framework:** ✅ **CrewAI** seçildi — `twin_api` fonksiyonları `@tool` olarak sarıldı.
+- **LLM:** ✅ **Gemini 2.0 Flash** (`.env` içinde `GEMINI_API_KEY`).
+- **RAG / ortak hafıza:** başlangıç için kullanılmadı; orkestratör diğer ajanların çıktısını
+  `context` olarak alıyor. (RAG/ChromaDB backlog'da opsiyonel.)
+- **Mail taslağı:** Tahsilat ajanı için planlandı — henüz uygulanmadı.
 
 ## Hazır altyapı (Sprint 1)
 
